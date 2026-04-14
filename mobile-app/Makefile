@@ -2,8 +2,8 @@ YARN ?= yarn
 GRADLEW = android/gradlew
 ANDROID_APK = android/app/build/outputs/apk/release/app-release.apk
 
-XCODE_WORKSPACE = ios/syncthingapp.xcworkspace
-XCODE_SCHEME = syncthingapp
+XCODE_WORKSPACE = ios/syncup.xcworkspace
+XCODE_SCHEME = syncup
 XCODE_DERIVEDDATA = ios/build
 
 .PHONY: install pod-install build-ios build-android run-ios run-android clean-ios clean-android clean help
@@ -28,8 +28,9 @@ build-ios: install pod-install
 		-derivedDataPath $(XCODE_DERIVEDDATA) \
 		CODE_SIGNING_ALLOWED=NO \
 		ARCHS=arm64 \
-		ONLY_ACTIVE_ARCH=YES
-	@echo "✓ iOS app built at $(XCODE_DERIVEDDATA)/Build/Products/Release-iphonesimulator/syncthingapp.app"
+		ONLY_ACTIVE_ARCH=YES \
+		2>&1 | if command -v xcbeautify >/dev/null 2>&1; then xcbeautify; else cat; fi
+	@echo "✓ iOS app built at $(XCODE_DERIVEDDATA)/Build/Products/Release-iphonesimulator/syncup.app"
 
 build-android: install
 	@echo "Building Android Release APK..."
@@ -45,15 +46,20 @@ run-android:
 
 clean-ios:
 	@echo "Cleaning iOS build..."
-	@rm -rf $(XCODE_DERIVEDDATA)
+	@rm -rf $(XCODE_DERIVEDDATA) ios/Pods
 	@echo "✓ iOS clean complete"
 
 clean-android:
 	@echo "Cleaning Android build..."
-	@cd android && ./gradlew clean --no-daemon 2>/dev/null || true
+	@rm -rf android/app/build android/build android/.gradle
 	@echo "✓ Android clean complete"
 
-clean: clean-ios clean-android
+clean-node:
+	@echo "Cleaning node_modules..."
+	@rm -rf node_modules
+	@echo "✓ node_modules clean complete"
+
+clean: clean-ios clean-android clean-node
 
 help:
 	@echo "Available targets:"

@@ -1,0 +1,975 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  ActivityIndicator,
+  Alert,
+  Modal,
+  ScrollView,
+  StyleSheet,
+  Switch,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  TouchableWithoutFeedback,
+  useWindowDimensions,
+  View,
+} from 'react-native';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
+import { useSyncthing, useSyncthingClient } from '../daemon/SyncthingContext';
+import type { DbStatus, DeviceConfig, FolderConfig, FolderError } from '../api/types';
+import { colors, formatBytes, Progress } from '../components/ui';
+import { removeDir } from '../fs/bridgeFs';
+import { FolderIgnoresEditor } from './FolderIgnoresEditor';
+import { FolderAdvancedEditor } from './FolderAdvancedEditor';
+import { FolderVersioningEditor } from './FolderVersioningEditor';
+import { FolderBrowser } from './FolderBrowser';
+import { ConflictResolver } from './ConflictResolver';
+import { FolderStatistics } from './FolderStatistics';
+import { ExternalSharingSettings } from './ExternalSharingSettings';
+import { FolderTypePicker } from '../components/FolderTypePicker';
+import { Icon } from '../components/Icon';
+import {
+  isSelectiveIgnoreList,
+  getSelectedPaths,
+  enableSelective,
+  disableSelective,
+} from '../utils/selectiveSync';
+
+type Page = 'main' | 'ignores' | 'advanced' | 'versioning' | 'browse' | 'conflicts' | 'statistics' | 'sharing';
+
+function versioningSubtitle(type: string | undefined): string {
+  switch (type) {
+    case 'trashcan':
+      return 'Trash can';
+    case 'simple':
+      return 'Simple';
+    case 'staggered':
+      return 'Staggered';
+    case 'external':
+      return 'External';
+    default:
+      return 'No versioning';
+  }
+}
+
+interface Props {
+  visible: boolean;
+  folder: FolderConfig | null;
+  status: DbStatus | null;
+  errors?: FolderError[];
+  onClose: () => void;
+  onChanged: () => void;
+}
+
+export function FolderDetailModal({
+  visible,
+  folder,
+  status,
+  errors = [],
+  onClose,
+  onChanged,
+}: Props) {
+  const { info } = useSyncthing();
+  const client = useSyncthingClient();
+  const keyboardHeight = useKeyboardHeight();
+  const { height: winHeight } = useWindowDimensions();
+  // pin height so sub-pages don't collapse to their content
+  const sheetHeight = Math.max(320, (winHeight - keyboardHeight) * 0.92);
+
+  const [allDevices, setAllDevices] = useState<DeviceConfig[]>([]);
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [folderType, setFolderType] = useState<FolderConfig['type']>('sendreceive');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [ignoreCount, setIgnoreCount] = useState<number | null>(null);
+  const [isSelective, setIsSelective] = useState(false);
+  const [selectedPathCount, setSelectedPathCount] = useState(0);
+  const [encryptionPasswords, setEncryptionPasswords] = useState<Record<string, string>>({});
+  const [page, setPage] = useState<Page>('main');
+
+  useEffect(() => {
+    if (!visible) {
+      // reset so next open doesn't show a stale sub-page
+      setPage('main');
+      return;
+    }
+    if (!folder) return;
+    setSelected(new Set(folder.devices.map(d => d.deviceID)));
+    setFolderType(folder.type);
+    setError(null);
+    const pwMap: Record<string, string> = {};
+    for (const d of folder.devices) {
+      if (d.encryptionPassword) pwMap[d.deviceID] = d.encryptionPassword;
+    }
+    setEncryptionPasswords(pwMap);
+    client.devices().then(setAllDevices).catch(e => setError(String(e)));
+    client
+      .getIgnores(folder.id)
+      .then(lines => {
+        setIgnoreCount(lines.filter(l => l.trim().length > 0).length);
+        setIsSelective(isSelectiveIgnoreList(lines));
+        setSelectedPathCount(getSelectedPaths(lines).length);
+      })
+      .catch(() => {
+        setIgnoreCount(null);
+        setIsSelective(false);
+        setSelectedPathCount(0);
+      });
+  }, [visible, folder, client]);
+
+  const peers = useMemo(
+    () => allDevices.filter(d => d.deviceID !== info?.deviceId),
+    [allDevices, info?.deviceId],
+  );
+
+  const togglePeer = (deviceId: string) => {
+    setSelected(prev => {
+      const next = new Set(prev);
+      if (next.has(deviceId)) next.delete(deviceId);
+      else next.add(deviceId);
+      return next;
+    });
+  };
+
+  const saveChanges = async () => {
+    if (!folder || !info) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const patch: Partial<FolderConfig> = {};
+      // self must always be in the list
+      selected.add(info.deviceId);
+      const nextDevices = Array.from(selected).map(deviceID => ({
+        deviceID,
+        introducedBy: '',
+        encryptionPassword: encryptionPasswords[deviceID] ?? '',
+      }));
+      const currentIds = new Set(folder.devices.map(d => d.deviceID));
+      const deviceDiff =
+        currentIds.size !== selected.size ||
+        Array.from(selected).some(id => !currentIds.has(id));
+      if (deviceDiff) patch.devices = nextDevices;
+      if (folderType !== folder.type) patch.type = folderType;
+      if (Object.keys(patch).length === 0) return;
+      await client.patchFolder(folder.id, patch);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const togglePause = async () => {
+    if (!folder) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.patchFolder(folder.id, { paused: !folder.paused });
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const rescan = async () => {
+    if (!folder) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await client.scanFolder(folder.id);
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const override = () => {
+    if (!folder) return;
+    Alert.alert(
+      'Override changes?',
+      'This folder is send-only. Override will publish your local state as authoritative and discard any differing changes peers have made.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Override',
+          style: 'destructive',
+          onPress: async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              await client.overrideFolder(folder.id);
+              onChanged();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const revert = () => {
+    if (!folder) return;
+    Alert.alert(
+      'Revert local changes?',
+      'This folder is receive-only. Revert will discard local modifications and pull the cluster state again. Local-only changes will be lost.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Revert',
+          style: 'destructive',
+          onPress: async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              await client.revertFolder(folder.id);
+              onChanged();
+            } catch (e) {
+              setError(e instanceof Error ? e.message : String(e));
+            } finally {
+              setBusy(false);
+            }
+          },
+        },
+      ],
+    );
+  };
+
+  const doDelete = async (alsoRemoveFiles: boolean) => {
+    if (!folder) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // unlink first so the daemon releases handles before we touch the files
+      await client.deleteFolder(folder.id);
+      if (alsoRemoveFiles) {
+        try {
+          removeDir(folder.path);
+        } catch (e) {
+          // config already gone; surface the disk failure separately
+          const msg = e instanceof Error ? e.message : String(e);
+          Alert.alert(
+            'Folder removed, files kept',
+            `The folder was unlinked from sync, but we could not delete the files at:\n\n${folder.path}\n\nReason: ${msg}\n\nRemove them manually from your file manager.`,
+          );
+          onChanged();
+          onClose();
+          return;
+        }
+      }
+      onChanged();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const confirmDelete = () => {
+    if (!folder) return;
+    Alert.alert(
+      'Delete folder?',
+      `"${folder.label || folder.id}" lives at:\n\n${folder.path}\n\nChoose what to remove.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Unlink only (keep files)',
+          onPress: () => doDelete(false),
+        },
+        {
+          text: 'Delete files too',
+          style: 'destructive',
+          onPress: () => {
+            Alert.alert(
+              'Delete files from disk?',
+              `This will permanently remove everything under:\n\n${folder.path}\n\nThis cannot be undone.`,
+              [
+                { text: 'Cancel', style: 'cancel' },
+                {
+                  text: 'Delete files',
+                  style: 'destructive',
+                  onPress: () => doDelete(true),
+                },
+              ],
+            );
+          },
+        },
+      ],
+    );
+  };
+
+  // on a sub-page, close = back to main; otherwise dismiss
+  const smartClose = () => {
+    if (page !== 'main') {
+      setPage('main');
+      return;
+    }
+    onClose();
+  };
+
+  const toggleSelective = () => {
+    if (!folder) return;
+    if (isSelective) {
+      Alert.alert(
+        'Disable selective sync?',
+        'All files from peers will start syncing to this device again.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Disable',
+            onPress: async () => {
+              setBusy(true);
+              try {
+                await client.setIgnores(folder.id, disableSelective());
+                setIsSelective(false);
+                setSelectedPathCount(0);
+                onChanged();
+              } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+              } finally {
+                setBusy(false);
+              }
+            },
+          },
+        ],
+      );
+    } else {
+      Alert.alert(
+        'Enable selective sync?',
+        'This will stop downloading new files automatically. Only files you pin in the browser will sync to this device. Already-downloaded files are kept.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Enable',
+            onPress: async () => {
+              setBusy(true);
+              try {
+                const current = await client.getIgnores(folder.id);
+                await client.setIgnores(folder.id, enableSelective(current));
+                setIsSelective(true);
+                setSelectedPathCount(0);
+                onChanged();
+              } catch (e) {
+                setError(e instanceof Error ? e.message : String(e));
+              } finally {
+                setBusy(false);
+              }
+            },
+          },
+        ],
+      );
+    }
+  };
+
+  const refreshIgnoreCount = () => {
+    if (!folder) return;
+    client
+      .getIgnores(folder.id)
+      .then(lines => {
+        setIgnoreCount(lines.filter(l => l.trim().length > 0).length);
+        setIsSelective(isSelectiveIgnoreList(lines));
+        setSelectedPathCount(getSelectedPaths(lines).length);
+      })
+      .catch(() => {});
+  };
+
+  const dirty = useMemo(() => {
+    if (!folder) return false;
+    if (folderType !== folder.type) return true;
+    const current = new Set(folder.devices.map(d => d.deviceID));
+    if (current.size !== selected.size) return true;
+    for (const id of current) if (!selected.has(id)) return true;
+    for (const id of selected) if (!current.has(id)) return true;
+    return false;
+  }, [folder, selected, folderType]);
+
+  if (!folder) return null;
+
+  return (
+    <Modal visible={visible} animationType="slide" transparent onRequestClose={smartClose} statusBarTranslucent>
+      <View style={[styles.backdrop, { paddingBottom: keyboardHeight }]}>
+        <TouchableWithoutFeedback onPress={smartClose}>
+          <View style={StyleSheet.absoluteFill} />
+        </TouchableWithoutFeedback>
+        <View style={[styles.sheet, { height: sheetHeight }]}>
+          {page === 'ignores' ? (
+            <FolderIgnoresEditor
+              folderId={folder.id}
+              folderLabel={folder.label || folder.id}
+              onBack={() => setPage('main')}
+              onSaved={refreshIgnoreCount}
+            />
+          ) : page === 'advanced' ? (
+            <FolderAdvancedEditor
+              folder={folder}
+              onBack={() => setPage('main')}
+              onSaved={onChanged}
+            />
+          ) : page === 'versioning' ? (
+            <FolderVersioningEditor
+              folder={folder}
+              onBack={() => setPage('main')}
+              onSaved={onChanged}
+            />
+          ) : page === 'browse' ? (
+            <FolderBrowser
+              folder={folder}
+              isSelective={isSelective}
+              onBack={() => setPage('main')}
+            />
+          ) : page === 'conflicts' ? (
+            <ConflictResolver
+              folder={folder}
+              onBack={() => setPage('main')}
+              onChanged={onChanged}
+            />
+          ) : page === 'statistics' ? (
+            <FolderStatistics
+              folder={folder}
+              status={status}
+              onBack={() => setPage('main')}
+            />
+          ) : page === 'sharing' ? (
+            <ExternalSharingSettings
+              folder={folder}
+              onBack={() => setPage('main')}
+            />
+          ) : (
+          <>
+          <View style={styles.header}>
+            <TouchableOpacity onPress={onClose}>
+              <Text style={styles.cancel}>Close</Text>
+            </TouchableOpacity>
+            <Text style={styles.title} numberOfLines={1}>
+              {folder.label || folder.id}
+            </Text>
+            <TouchableOpacity onPress={saveChanges} disabled={!dirty || busy}>
+              {busy ? (
+                <ActivityIndicator color={colors.accent} />
+              ) : (
+                <Text style={[styles.save, !dirty && styles.saveDisabled]}>Save</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView contentContainerStyle={styles.body}>
+            {error && <Text style={styles.error}>{error}</Text>}
+
+            <View style={styles.card}>
+              <Text style={styles.cardTitle}>Info</Text>
+              <Row label="ID" value={folder.id} mono />
+              <Row label="Path" value={folder.path} mono multiline />
+              {status && (
+                <>
+                  <Row label="State" value={folder.paused ? 'paused' : status.state} />
+                  <Row label="Local files" value={`${status.localFiles} of ${status.globalFiles}`} />
+                  <Row label="Local size" value={formatBytes(status.localBytes)} />
+                  <Row label="Global size" value={formatBytes(status.globalBytes)} />
+                  {status.needBytes > 0 && (
+                    <Row label="Need" value={formatBytes(status.needBytes)} />
+                  )}
+                </>
+              )}
+              {status && status.globalBytes > 0 && status.needBytes > 0 && (
+                <View style={styles.progressBlock}>
+                  <View style={styles.progressHeader}>
+                    <Text style={styles.progressPercent}>
+                      {Math.floor(((status.globalBytes - status.needBytes) / status.globalBytes) * 100)}%
+                    </Text>
+                    <Text style={styles.progressBytes}>
+                      {formatBytes(status.globalBytes - status.needBytes)} / {formatBytes(status.globalBytes)}
+                    </Text>
+                  </View>
+                  <Progress
+                    value={(status.globalBytes - status.needBytes) / status.globalBytes}
+                    height={8}
+                  />
+                  <Text style={styles.progressHint}>
+                    {formatBytes(status.needBytes)} remaining
+                  </Text>
+                </View>
+              )}
+            </View>
+
+            <TouchableOpacity style={styles.browseBtn} onPress={() => setPage('browse')}>
+              <Icon name="folder-open" size={22} color={colors.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.browseTitle}>Browse files</Text>
+                <Text style={styles.browseHint}>
+                  {status
+                    ? `${status.globalFiles} file${status.globalFiles === 1 ? '' : 's'}, ${formatBytes(status.globalBytes)}`
+                    : 'See what\u2019s in this folder'}
+                </Text>
+              </View>
+              <Text style={styles.browseArrow}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.browseBtn} onPress={() => setPage('statistics')}>
+              <Icon name="bar-chart" size={22} color={colors.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.browseTitle}>Statistics</Text>
+                <Text style={styles.browseHint}>
+                  Sync progress per device
+                </Text>
+              </View>
+              <Text style={styles.browseArrow}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.browseBtn} onPress={() => setPage('ignores')}>
+              <Icon name="eye-off" size={22} color={colors.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.browseTitle}>Ignore patterns</Text>
+                <Text style={styles.browseHint}>
+                  {ignoreCount == null
+                    ? 'Exclude files from sync'
+                    : ignoreCount === 0
+                      ? 'No patterns set'
+                      : `${ignoreCount} pattern${ignoreCount === 1 ? '' : 's'} set`}
+                </Text>
+              </View>
+              <Text style={styles.browseArrow}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.browseBtn} onPress={() => setPage('versioning')}>
+              <Icon name="layers" size={22} color={colors.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.browseTitle}>File versioning</Text>
+                <Text style={styles.browseHint}>
+                  {versioningSubtitle(folder.versioning?.type)}
+                </Text>
+              </View>
+              <Text style={styles.browseArrow}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.browseBtn} onPress={() => setPage('advanced')}>
+              <Icon name="settings" size={22} color={colors.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.browseTitle}>Advanced options</Text>
+                <Text style={styles.browseHint}>
+                  Scan cadence, pull order, disk guard, permissions
+                </Text>
+              </View>
+              <Text style={styles.browseArrow}>›</Text>
+            </TouchableOpacity>
+
+            {errors.length > 0 && (
+              <View style={styles.errorsCard}>
+                <Text style={styles.errorsTitle}>
+                  {errors.length} file{errors.length === 1 ? '' : 's'} with errors
+                </Text>
+                <Text style={styles.errorsHint}>
+                  SyncUp could not finish syncing these paths. Common causes: permission denied, disk full, a file held open by another app.
+                </Text>
+                {errors.map((e, i) => (
+                  <View
+                    key={`${e.path}-${i}`}
+                    style={[styles.errorRow, i === errors.length - 1 && styles.errorRowLast]}
+                  >
+                    <Text style={styles.errorPath} numberOfLines={2}>{e.path}</Text>
+                    <Text style={styles.errorMsg}>{e.error}</Text>
+                  </View>
+                ))}
+              </View>
+            )}
+
+            <TouchableOpacity style={styles.browseBtn} onPress={() => setPage('conflicts')}>
+              <Icon name="warning" size={22} color="#e5a94b" />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.browseTitle}>Resolve conflicts</Text>
+                <Text style={styles.browseHint}>
+                  Find and resolve .sync-conflict files
+                </Text>
+              </View>
+              <Text style={styles.browseArrow}>›</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity style={styles.browseBtn} onPress={() => setPage('sharing')}>
+              <Icon name="link" size={22} color={colors.accent} />
+              <View style={{ flex: 1 }}>
+                <Text style={styles.browseTitle}>External sharing</Text>
+                <Text style={styles.browseHint}>
+                  Generate web links for files
+                </Text>
+              </View>
+              <Text style={styles.browseArrow}>›</Text>
+            </TouchableOpacity>
+
+            {folder.type !== 'sendonly' && folder.type !== 'receiveencrypted' && (
+              <View style={styles.selectiveSyncRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.browseTitle}>Selective sync</Text>
+                  <Text style={styles.browseHint}>
+                    {isSelective
+                      ? selectedPathCount > 0
+                        ? `${selectedPathCount} path${selectedPathCount === 1 ? '' : 's'} pinned to this device`
+                        : 'Enabled. Pin files in Browse to sync them.'
+                      : 'Only download files you choose'}
+                  </Text>
+                </View>
+                <Switch
+                  value={isSelective}
+                  onValueChange={toggleSelective}
+                  trackColor={{ true: colors.accent, false: colors.border }}
+                  disabled={busy}
+                />
+              </View>
+            )}
+
+            <Text style={styles.sectionLabel}>Folder type</Text>
+            <View style={styles.typePickerWrap}>
+              <FolderTypePicker value={folderType} onChange={setFolderType} disabled={busy} />
+            </View>
+
+            <Text style={styles.sectionLabel}>Share with</Text>
+            {peers.length === 0 ? (
+              <Text style={styles.peerEmpty}>No peer devices known yet.</Text>
+            ) : (
+              peers.map(d => {
+                const on = selected.has(d.deviceID);
+                return (
+                  <View key={d.deviceID}>
+                    <TouchableOpacity
+                      style={[styles.peer, on && styles.peerOn]}
+                      onPress={() => togglePeer(d.deviceID)}
+                    >
+                      <View style={styles.peerMain}>
+                        <Text style={styles.peerName}>{d.name || '(unnamed)'}</Text>
+                        <Text style={styles.peerId} numberOfLines={1}>{d.deviceID}</Text>
+                      </View>
+                      <View style={[styles.checkbox, on && styles.checkboxOn]}>
+                        {on && <Text style={styles.checkmark}>✓</Text>}
+                      </View>
+                    </TouchableOpacity>
+                    {on && folderType === 'receiveencrypted' && (
+                      <View style={styles.encryptionRow}>
+                        <Text style={styles.encryptionLabel}>Encryption password</Text>
+                        <TextInput
+                          style={styles.encryptionInput}
+                          value={encryptionPasswords[d.deviceID] ?? ''}
+                          onChangeText={text =>
+                            setEncryptionPasswords(prev => ({ ...prev, [d.deviceID]: text }))
+                          }
+                          placeholder="Enter password for this device"
+                          placeholderTextColor={colors.textDim}
+                          secureTextEntry
+                          autoCorrect={false}
+                          autoCapitalize="none"
+                        />
+                      </View>
+                    )}
+                  </View>
+                );
+              })
+            )}
+
+            <View style={styles.actions}>
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.pauseBtn]}
+                onPress={rescan}
+                disabled={busy || folder.paused}
+              >
+                <Text style={[styles.actionBtnText, folder.paused && styles.actionBtnDisabled]}>
+                  Rescan
+                </Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={[styles.actionBtn, styles.pauseBtn]} onPress={togglePause} disabled={busy}>
+                <Text style={styles.actionBtnText}>
+                  {folder.paused ? 'Resume' : 'Pause'}
+                </Text>
+              </TouchableOpacity>
+            </View>
+
+            {folder.type === 'sendonly' &&
+              status &&
+              status.needBytes === 0 &&
+              status.receiveOnlyChangedBytes === 0 ? null : folder.type === 'sendonly' ? (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.overrideBtn]}
+                onPress={override}
+                disabled={busy}
+              >
+                <Text style={[styles.actionBtnText, styles.overrideBtnText]}>
+                  Override changes (send local state)
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+
+            {folder.type === 'receiveonly' && status && status.receiveOnlyChangedBytes > 0 ? (
+              <TouchableOpacity
+                style={[styles.actionBtn, styles.overrideBtn]}
+                onPress={revert}
+                disabled={busy}
+              >
+                <Text style={[styles.actionBtnText, styles.overrideBtnText]}>
+                  Revert local changes ({formatBytes(status.receiveOnlyChangedBytes)})
+                </Text>
+              </TouchableOpacity>
+            ) : null}
+
+            <TouchableOpacity
+              style={[styles.actionBtn, styles.deleteBtn, styles.deleteBtnFull]}
+              onPress={confirmDelete}
+              disabled={busy}
+            >
+              <Text style={[styles.actionBtnText, styles.deleteBtnText]}>Delete folder</Text>
+            </TouchableOpacity>
+
+          </ScrollView>
+          </>
+          )}
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+function Row({ label, value, mono, multiline }: { label: string; value: string; mono?: boolean; multiline?: boolean }) {
+  if (multiline) {
+    return (
+      <View style={styles.rowStacked}>
+        <Text style={styles.rowLabel}>{label}</Text>
+        <Text style={[styles.rowValueStacked, mono && styles.mono]} selectable>{value}</Text>
+      </View>
+    );
+  }
+  return (
+    <View style={styles.row}>
+      <Text style={styles.rowLabel}>{label}</Text>
+      <Text style={[styles.rowValue, mono && styles.mono]} selectable numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
+const styles = StyleSheet.create({
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.55)',
+    justifyContent: 'flex-end',
+  },
+  sheet: {
+    backgroundColor: colors.bg,
+    borderTopLeftRadius: 18,
+    borderTopRightRadius: 18,
+  },
+  header: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    gap: 8,
+  },
+  title: { color: colors.text, fontSize: 16, fontWeight: '600', flex: 1, textAlign: 'center' },
+  cancel: { color: colors.textDim, fontSize: 15 },
+  save: { color: colors.accent, fontSize: 15, fontWeight: '600' },
+  saveDisabled: { color: colors.border },
+  body: { padding: 20, paddingBottom: 40 },
+  card: {
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  cardTitle: {
+    color: colors.textDim,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  row: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 6,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+    gap: 12,
+  },
+  rowStacked: {
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  rowLabel: { color: colors.textDim, fontSize: 13 },
+  rowValue: { color: colors.text, fontSize: 13, flex: 1, textAlign: 'right' },
+  rowValueStacked: { color: colors.text, fontSize: 12, marginTop: 4 },
+  mono: { fontFamily: 'Menlo' },
+  sectionLabel: {
+    color: colors.textDim,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  typePickerWrap: { marginBottom: 20 },
+  errorsCard: {
+    backgroundColor: colors.errorBg,
+    borderRadius: 12,
+    padding: 14,
+    marginBottom: 20,
+    borderWidth: 1,
+    borderColor: colors.errorBorder,
+  },
+  errorsTitle: {
+    color: colors.error,
+    fontSize: 14,
+    fontWeight: '700',
+    marginBottom: 4,
+  },
+  errorsHint: {
+    color: '#ffccd0',
+    fontSize: 11,
+    marginBottom: 10,
+    lineHeight: 15,
+  },
+  errorRow: {
+    paddingVertical: 8,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.errorBorder,
+  },
+  errorRowLast: { borderBottomWidth: 0 },
+  errorPath: {
+    color: colors.text,
+    fontSize: 12,
+    fontFamily: 'Menlo',
+    marginBottom: 2,
+  },
+  errorMsg: {
+    color: '#ffccd0',
+    fontSize: 11,
+    lineHeight: 15,
+  },
+  progressBlock: {
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: StyleSheet.hairlineWidth,
+    borderTopColor: colors.border,
+    gap: 8,
+  },
+  progressHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'baseline',
+  },
+  progressPercent: { color: colors.text, fontSize: 18, fontWeight: '700' },
+  progressBytes: { color: colors.textDim, fontSize: 12 },
+  progressHint: { color: colors.textDim, fontSize: 11 },
+  selectiveSyncRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
+    gap: 14,
+    marginBottom: 20,
+  },
+  browseBtn: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 14,
+    gap: 14,
+    marginBottom: 20,
+  },
+  browseIcon: { fontSize: 22 },
+  browseTitle: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  browseHint: { color: colors.textDim, fontSize: 11, marginTop: 2 },
+  browseArrow: { color: colors.textDim, fontSize: 22 },
+  peerEmpty: { color: colors.textDim, fontSize: 13, fontStyle: 'italic', marginBottom: 16 },
+  peer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    marginBottom: 8,
+  },
+  peerOn: { borderColor: colors.accent },
+  peerMain: { flex: 1 },
+  peerName: { color: colors.text, fontSize: 14, fontWeight: '500' },
+  peerId: { color: colors.textDim, fontSize: 11, fontFamily: 'Menlo', marginTop: 2 },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxOn: { borderColor: colors.accent, backgroundColor: colors.accent },
+  checkmark: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  encryptionRow: {
+    paddingHorizontal: 12,
+    paddingBottom: 10,
+    marginTop: -4,
+    marginBottom: 8,
+  },
+  encryptionLabel: {
+    color: colors.textDim,
+    fontSize: 11,
+    marginBottom: 4,
+  },
+  encryptionInput: {
+    backgroundColor: colors.bg,
+    borderWidth: 1,
+    borderColor: colors.border,
+    borderRadius: 8,
+    color: colors.text,
+    fontSize: 13,
+    paddingHorizontal: 10,
+    paddingVertical: 8,
+  },
+  actions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 24,
+  },
+  actionBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 10,
+    alignItems: 'center',
+    borderWidth: 1,
+  },
+  pauseBtn: {
+    backgroundColor: colors.card,
+    borderColor: colors.border,
+  },
+  deleteBtn: {
+    backgroundColor: colors.errorBg,
+    borderColor: colors.errorBorder,
+  },
+  actionBtnText: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  actionBtnDisabled: { color: colors.textDim },
+  overrideBtn: {
+    backgroundColor: colors.card,
+    borderColor: colors.accent,
+    marginTop: 12,
+  },
+  overrideBtnText: { color: colors.accent },
+  deleteBtnFull: { marginTop: 12 },
+  deleteBtnText: { color: colors.error },
+  error: { color: colors.error, fontSize: 13, marginBottom: 12 },
+});

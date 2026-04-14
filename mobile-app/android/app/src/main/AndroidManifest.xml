@@ -1,9 +1,21 @@
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+  xmlns:tools="http://schemas.android.com/tools">
   <uses-permission android:name="android.permission.INTERNET"/>
+  <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+  <uses-permission android:name="android.permission.ACCESS_WIFI_STATE"/>
+  <uses-permission android:name="android.permission.CHANGE_WIFI_MULTICAST_STATE"/>
+  <uses-permission android:name="android.permission.WAKE_LOCK"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE"/>
+  <uses-permission android:name="android.permission.FOREGROUND_SERVICE_DATA_SYNC"/>
+  <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
   <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"/>
+  <uses-permission android:name="android.permission.READ_MEDIA_IMAGES"/>
+  <uses-permission android:name="android.permission.READ_MEDIA_VIDEO"/>
   <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW"/>
   <uses-permission android:name="android.permission.VIBRATE"/>
   <uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE"/>
+  <uses-permission android:name="android.permission.MANAGE_EXTERNAL_STORAGE"
+    tools:ignore="ScopedStorage"/>
   <queries>
     <intent>
       <action android:name="android.intent.action.VIEW"/>
@@ -27,5 +39,18 @@
         <data android:scheme="exp+mobile-app"/>
       </intent-filter>
     </activity>
+    <activity android:name=".ShareReceiveActivity" android:theme="@android:style/Theme.Translucent.NoTitleBar" android:exported="true" android:excludeFromRecents="true" android:label="Save to SyncUp">
+      <intent-filter>
+        <action android:name="android.intent.action.SEND"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <data android:mimeType="*/*"/>
+      </intent-filter>
+      <intent-filter>
+        <action android:name="android.intent.action.SEND_MULTIPLE"/>
+        <category android:name="android.intent.category.DEFAULT"/>
+        <data android:mimeType="*/*"/>
+      </intent-filter>
+    </activity>
+    <service android:name=".SyncthingService" android:foregroundServiceType="dataSync" android:exported="false"/>
   </application>
 </manifest>

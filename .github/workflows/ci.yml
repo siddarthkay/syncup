@@ -1,0 +1,166 @@
+name: ci
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: '20'
+  GO_VERSION: '1.25'
+  JAVA_VERSION: '17'
+
+jobs:
+  lint-and-typecheck:
+    name: lint + typecheck + go vet
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Cache yarn state
+        uses: actions/cache@v4
+        with:
+          path: |
+            mobile-app/.yarn/cache
+            mobile-app/.yarn/install-state.gz
+          key: yarn-${{ runner.os }}-${{ hashFiles('mobile-app/yarn.lock') }}
+          restore-keys: |
+            yarn-${{ runner.os }}-
+
+      - name: Install JS deps
+        working-directory: mobile-app
+        run: yarn install --immutable
+
+      - name: ESLint
+        working-directory: mobile-app
+        run: yarn lint
+
+      - name: Typecheck (tsc --noEmit)
+        working-directory: mobile-app
+        run: yarn typecheck
+
+      - name: go vet
+        working-directory: backend
+        run: go vet -tags noassets ./...
+
+  android:
+    name: android build
+    runs-on: [self-hosted, linux]
+    needs: lint-and-typecheck
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Enable Corepack
+        run: corepack enable
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: ${{ env.JAVA_VERSION }}
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+          cache-dependency-path: backend/go.sum
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'tools platform-tools platforms;android-36 build-tools;36.0.0 ndk;26.1.10909125'
+
+      - name: Cache yarn state
+        uses: actions/cache@v4
+        with:
+          path: |
+            mobile-app/.yarn/cache
+            mobile-app/.yarn/install-state.gz
+          key: yarn-${{ runner.os }}-${{ hashFiles('mobile-app/yarn.lock') }}
+          restore-keys: |
+            yarn-${{ runner.os }}-
+
+      - name: Cache Gradle
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ runner.os }}-${{ hashFiles('mobile-app/android/**/*.gradle*', 'mobile-app/android/gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: |
+            gradle-${{ runner.os }}-
+
+      - name: Cache gomobile toolchain
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/go/bin/gomobile
+            ~/go/bin/gobind
+            ~/go/pkg/gomobile
+          key: gomobile-${{ runner.os }}-${{ env.GO_VERSION }}-${{ hashFiles('backend/go.sum') }}
+
+      - name: Build Go backend for Android
+        run: make -C backend android
+
+      - name: Build Android APK
+        run: make -C mobile-app build-android
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: app-release-${{ github.sha }}
+          path: mobile-app/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
+  ios:
+    name: ios build
+    runs-on: [self-hosted, macOS]
+    needs: lint-and-typecheck
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      # Nix provides Go, Node, CocoaPods, etc. via flake.nix.
+      # Xcode must be pre-installed on the runner.
+      - name: Clean stale build state
+        run: make clean
+
+      - name: Build iOS app (via nix)
+        run: make ios
+
+      - name: Upload simulator app
+        uses: actions/upload-artifact@v4
+        with:
+          name: syncup-${{ github.sha }}
+          path: mobile-app/ios/build/Build/Products/Release-iphonesimulator/syncup.app
+          if-no-files-found: error
+          retention-days: 14

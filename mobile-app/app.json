@@ -1,7 +1,7 @@
 {
   "expo": {
-    "name": "syncthing-app",
-    "slug": "syncthing-app",
+    "name": "syncup",
+    "slug": "syncup",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
@@ -10,23 +10,26 @@
     "splash": {
       "image": "./assets/splash-icon.png",
       "resizeMode": "contain",
-      "backgroundColor": "#ffffff"
+      "backgroundColor": "#2b57c8"
     },
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.siddarthkay.syncthing"
+      "bundleIdentifier": "com.siddarthkay.syncup"
     },
     "android": {
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
-        "backgroundColor": "#ffffff"
+        "backgroundColor": "#2b57c8"
       },
       "edgeToEdgeEnabled": true,
       "predictiveBackGestureEnabled": false,
-      "package": "com.siddarthkay.syncthing"
+      "package": "com.siddarthkay.syncup"
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      "expo-video"
+    ]
   }
 }

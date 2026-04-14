@@ -1,0 +1,284 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { FormModal } from '../components/FormModal';
+import { colors } from '../components/ui';
+import { useSyncthing, useSyncthingClient } from '../daemon/SyncthingContext';
+import type { DeviceConfig, FolderConfig, PendingFolderOffer } from '../api/types';
+import { FolderPicker } from './FolderPicker';
+import { FolderTypePicker } from '../components/FolderTypePicker';
+
+interface Props {
+  visible: boolean;
+  offer: PendingFolderOffer | null;
+  onClose: () => void;
+  onAccepted: () => void;
+}
+
+export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props) {
+  const { info } = useSyncthing();
+  const client = useSyncthingClient();
+
+  const [path, setPath] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [allDevices, setAllDevices] = useState<DeviceConfig[]>([]);
+  const [extraPeers, setExtraPeers] = useState<Set<string>>(new Set());
+  const [folderType, setFolderType] = useState<FolderConfig['type']>('sendreceive');
+  const [error, setError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+
+  useEffect(() => {
+    if (!visible) return;
+    setPath('');
+    setExtraPeers(new Set());
+    // encrypted slot from the peer => receiveencrypted, else two-way
+    setFolderType(offer?.receiveEncrypted ? 'receiveencrypted' : 'sendreceive');
+    setError(null);
+    setSubmitting(false);
+    client.devices().then(setAllDevices).catch(e => setError(String(e)));
+  }, [visible, offer, client]);
+
+  const pickerRoot = info?.foldersRoot ?? '';
+
+  const displayPath = useMemo(() => {
+    if (!path) return '';
+    if (pickerRoot && path.startsWith(pickerRoot)) {
+      const rel = path.slice(pickerRoot.length) || '/';
+      return `folders${rel}`;
+    }
+    return path;
+  }, [path, pickerRoot]);
+
+  const otherPeers = useMemo(
+    () =>
+      allDevices.filter(
+        d => d.deviceID !== info?.deviceId && d.deviceID !== offer?.deviceId,
+      ),
+    [allDevices, info?.deviceId, offer?.deviceId],
+  );
+
+  const togglePeer = (deviceId: string) => {
+    setExtraPeers(prev => {
+      const next = new Set(prev);
+      if (next.has(deviceId)) next.delete(deviceId);
+      else next.add(deviceId);
+      return next;
+    });
+  };
+
+  const cancel = () => {
+    onClose();
+  };
+
+  const submit = async () => {
+    if (!offer || !info || !path) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const devices = [
+        { deviceID: info.deviceId, introducedBy: '', encryptionPassword: '' },
+        { deviceID: offer.deviceId, introducedBy: '', encryptionPassword: '' },
+        ...Array.from(extraPeers).map(d => ({
+          deviceID: d,
+          introducedBy: '',
+          encryptionPassword: '',
+        })),
+      ];
+      const folder: FolderConfig = {
+        id: offer.folderId,
+        label: offer.label || offer.folderId,
+        filesystemType: 'basic',
+        path,
+        type: folderType,
+        devices,
+        rescanIntervalS: 3600,
+        fsWatcherEnabled: true,
+        fsWatcherDelayS: 10,
+        ignorePerms: true,
+        autoNormalize: true,
+        paused: false,
+        markerName: '.stfolder',
+        order: 'random',
+        minDiskFree: { value: 1, unit: '%' },
+        syncOwnership: false,
+        sendOwnership: false,
+        syncXattrs: false,
+        sendXattrs: false,
+        versioning: {
+          type: '',
+          params: {},
+          cleanupIntervalS: 3600,
+          fsPath: '',
+          fsType: 'basic',
+        },
+      };
+      await client.putFolder(folder);
+      onAccepted();
+      onClose();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSubmitting(false);
+    }
+  };
+
+  if (!offer) return null;
+
+  return (
+    <>
+      <FormModal
+        visible={visible && !pickerOpen}
+        title="Accept folder"
+        onCancel={cancel}
+        onSubmit={submit}
+        submitLabel="Accept"
+        submitting={submitting}
+        submitDisabled={!path}
+      >
+        <View style={styles.summary}>
+          <SummaryRow label="Label" value={offer.label || '(unnamed)'} />
+          <SummaryRow label="ID" value={offer.folderId} mono />
+          <SummaryRow label="From" value={shortDeviceId(offer.deviceId)} mono />
+        </View>
+
+        <Text style={styles.sectionLabel}>Where to store it</Text>
+        <TouchableOpacity
+          style={[styles.pickerBtn, !path && styles.pickerBtnEmpty]}
+          onPress={() => setPickerOpen(true)}
+          disabled={!pickerRoot}
+        >
+          <Text style={[styles.pickerBtnText, !path && styles.pickerBtnTextEmpty]} numberOfLines={2}>
+            {displayPath || 'Pick folder…'}
+          </Text>
+          <Text style={styles.pickerArrow}>›</Text>
+        </TouchableOpacity>
+        <Text style={styles.hint}>
+          Files from the peer will be copied into this directory.
+        </Text>
+
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Folder type</Text>
+        <FolderTypePicker value={folderType} onChange={setFolderType} />
+
+        {otherPeers.length > 0 && (
+          <>
+            <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Also share with</Text>
+            {otherPeers.map(d => {
+              const on = extraPeers.has(d.deviceID);
+              return (
+                <TouchableOpacity
+                  key={d.deviceID}
+                  style={[styles.peer, on && styles.peerOn]}
+                  onPress={() => togglePeer(d.deviceID)}
+                >
+                  <View style={styles.peerMain}>
+                    <Text style={styles.peerName}>{d.name || '(unnamed)'}</Text>
+                    <Text style={styles.peerId} numberOfLines={1}>{d.deviceID}</Text>
+                  </View>
+                  <View style={[styles.checkbox, on && styles.checkboxOn]}>
+                    {on && <Text style={styles.checkmark}>✓</Text>}
+                  </View>
+                </TouchableOpacity>
+              );
+            })}
+          </>
+        )}
+
+        {error && <Text style={styles.error}>{error}</Text>}
+      </FormModal>
+
+      <FolderPicker
+        visible={pickerOpen}
+        rootPath={pickerRoot}
+        initialPath={path || pickerRoot}
+        onCancel={() => setPickerOpen(false)}
+        onPick={chosen => {
+          setPath(chosen);
+          setPickerOpen(false);
+        }}
+      />
+    </>
+  );
+}
+
+function SummaryRow({ label, value, mono }: { label: string; value: string; mono?: boolean }) {
+  return (
+    <View style={styles.summaryRow}>
+      <Text style={styles.summaryLabel}>{label}</Text>
+      <Text style={[styles.summaryValue, mono && styles.mono]} numberOfLines={1}>{value}</Text>
+    </View>
+  );
+}
+
+function shortDeviceId(id: string): string {
+  return id.split('-').slice(0, 2).join('-') + '…';
+}
+
+const styles = StyleSheet.create({
+  summary: {
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 20,
+  },
+  summaryRow: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingVertical: 4,
+  },
+  summaryLabel: { color: colors.textDim, fontSize: 12 },
+  summaryValue: { color: colors.text, fontSize: 13, flex: 1, textAlign: 'right' },
+  mono: { fontFamily: 'Menlo' },
+  sectionLabel: {
+    color: colors.textDim,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+    marginBottom: 8,
+  },
+  pickerBtn: {
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    paddingHorizontal: 14,
+    paddingVertical: 14,
+    borderWidth: 1,
+    borderColor: colors.border,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  pickerBtnEmpty: { borderStyle: 'dashed' },
+  pickerBtnText: { color: colors.text, fontSize: 14, flex: 1, fontFamily: 'Menlo' },
+  pickerBtnTextEmpty: { color: colors.textDim, fontStyle: 'italic', fontFamily: undefined },
+  pickerArrow: { color: colors.textDim, fontSize: 20 },
+  hint: { color: colors.textDim, fontSize: 11, marginTop: 6 },
+  peer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    padding: 12,
+    marginBottom: 8,
+  },
+  peerOn: { borderColor: colors.accent },
+  peerMain: { flex: 1 },
+  peerName: { color: colors.text, fontSize: 14, fontWeight: '500' },
+  peerId: { color: colors.textDim, fontSize: 11, fontFamily: 'Menlo', marginTop: 2 },
+  checkbox: {
+    width: 22,
+    height: 22,
+    borderRadius: 6,
+    borderWidth: 1.5,
+    borderColor: colors.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  checkboxOn: { borderColor: colors.accent, backgroundColor: colors.accent },
+  checkmark: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  error: { color: colors.error, fontSize: 13, marginTop: 12 },
+});

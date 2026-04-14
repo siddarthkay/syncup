@@ -1,0 +1,72 @@
+{
+  description = "SyncUp dev environment";
+
+  inputs = {
+    nixpkgs.url = "github:NixOS/nixpkgs/566acc07c54dc807f91625bb286cb9b321b5f42a";
+    flake-utils.url = "github:numtide/flake-utils";
+  };
+
+  outputs = { self, nixpkgs, flake-utils }:
+    flake-utils.lib.eachDefaultSystem (system:
+      let
+        pkgs = import nixpkgs { inherit system; config.allowUnfree = true; };
+      in
+      {
+        devShells.default = pkgs.mkShellNoCC {
+          buildInputs = with pkgs; [
+            go_1_25
+            gotools
+
+            # Node
+            nodejs_20
+            corepack
+
+            # Java (Android builds)
+            jdk17
+
+            # iOS
+            cocoapods
+            xcbeautify
+
+            # Utilities
+            git
+            gnumake
+            watchman
+          ];
+
+          shellHook = ''
+            export GOPATH="$HOME/gopath"
+            export PATH="$GOPATH/bin:$PATH"
+
+            # Corepack writes shims; point it somewhere writable (nix store is read-only)
+            export COREPACK_HOME="''${COREPACK_HOME:-$HOME/.cache/corepack}"
+            mkdir -p "$COREPACK_HOME/bin"
+            corepack enable --install-directory "$COREPACK_HOME/bin" 2>/dev/null || true
+            export PATH="$COREPACK_HOME/bin:$PATH"
+
+            # macOS system tools must come first on PATH. Nix pulls in GNU
+            # coreutils as a transitive dep, and its cp/realpath/etc. break
+            # Xcode script phases that expect BSD variants (same class of bug
+            # as facebook/react-native#42112).
+            export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+
+            # Expose Xcode toolchain so gomobile / xcodebuild can find SDKs.
+            if [ -d /Applications/Xcode.app ]; then
+              export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+            fi
+
+            echo ""
+            echo "SyncUp dev shell"
+            echo "  go:   $(go version | cut -d' ' -f3)"
+            echo "  node: $(node --version)"
+            echo "  java: $(java -version 2>&1 | head -1)"
+            echo ""
+            echo "Notes:"
+            echo "  - Xcode must be installed via the App Store (not available in Nix)"
+            echo "  - Android SDK/NDK: install via Android Studio or sdkmanager"
+            echo "  - Run 'make setup' to install gomobile"
+            echo ""
+          '';
+        };
+      });
+}

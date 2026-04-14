@@ -13,7 +13,7 @@ platform :ios, podfile_properties['ios.deploymentTarget'] || '16.0'
 
 prepare_react_native_project!
 
-target 'syncthingapp' do
+target 'syncup' do
   use_expo_modules!
 
   # Add the Go XCFramework
@@ -53,21 +53,38 @@ target 'syncthingapp' do
       :ccache_enabled => podfile_properties['apple.ccacheEnabled'] == 'true',
     )
 
-    # Ensure all pods use iOS 16.0 deployment target
+    # Fix folly/dynamic.h not found: ReactNativeDependencies ships folly
+    # headers under a Headers/ subdirectory that isn't on the default
+    # search path when building React-Core from source (RCT_USE_PREBUILT_RNCORE=0).
+    folly_path = '"${PODS_ROOT}/Headers/Public/ReactNativeDependencies/Headers"'
+
+    # Patch pod targets
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
         config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+        config.build_settings['HEADER_SEARCH_PATHS'] ||= ['$(inherited)']
+        config.build_settings['HEADER_SEARCH_PATHS'] << folly_path
       end
 
       # Fix ExpoModulesCore missing React-callinvoker dependency for RN 0.82
       if target.name == 'ExpoModulesCore'
         target.build_configurations.each do |config|
-          # Add React-callinvoker header search path
           config.build_settings['HEADER_SEARCH_PATHS'] ||= ['$(inherited)']
           config.build_settings['HEADER_SEARCH_PATHS'] << '"${PODS_ROOT}/Headers/Public/React-callinvoker"'
           config.build_settings['HEADER_SEARCH_PATHS'] << '"${PODS_ROOT}/Headers/Private/React-callinvoker"'
         end
       end
+    end
+
+    # Patch the generated xcconfigs for the main app target (Pods-syncup)
+    Dir.glob(File.join(__dir__, 'Pods', 'Target Support Files', 'Pods-syncup', '*.xcconfig')).each do |xcconfig_path|
+      content = File.read(xcconfig_path)
+      next if content.include?('ReactNativeDependencies/Headers"')
+      content = content.gsub(
+        /^(HEADER_SEARCH_PATHS = )/,
+        "\\1#{folly_path} "
+      )
+      File.write(xcconfig_path, content)
     end
   end
 end

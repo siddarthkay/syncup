@@ -39,8 +39,10 @@ android: setup
 	@mkdir -p $(dir $(ANDROID_OUTPUT))
 	@$(GO) get golang.org/x/mobile/bind
 	@GOPATH=$(GOPATH) PATH=$(GOPATH)/bin:$(GOROOT)/bin:$$PATH $(GOMOBILE) bind \
-		-target=android \
+		-target=android/arm64,android/amd64 \
 		-androidapi $(ANDROID_API) \
+		-tags noassets \
+		-ldflags=-checklinkname=0 \
 		-o $(ANDROID_OUTPUT) \
 		./
 	@echo "✓ Android AAR built successfully at $(ANDROID_OUTPUT)"
@@ -51,6 +53,8 @@ ios: setup
 	@$(GO) get golang.org/x/mobile/bind
 	@GOPATH=$(GOPATH) PATH=$(GOPATH)/bin:$(GOROOT)/bin:$$PATH $(GOMOBILE) bind \
 		-target=ios \
+		-tags noassets \
+		-ldflags=-checklinkname=0 \
 		-o $(IOS_OUTPUT) \
 		./
 	@echo "✓ iOS XCFramework built successfully at $(IOS_OUTPUT)"
@@ -68,7 +72,7 @@ clean-all: clean
 
 test:
 	@echo "Running tests..."
-	@$(GO) test -v ./...
+	@$(GO) test -tags noassets -v ./...
 
 fmt:
 	@echo "Formatting code..."
@@ -76,7 +80,7 @@ fmt:
 
 vet:
 	@echo "Running go vet..."
-	@$(GO) vet ./...
+	@$(GO) vet -tags noassets ./...
 
 help:
 	@echo "Available targets:"

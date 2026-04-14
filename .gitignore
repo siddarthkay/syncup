@@ -1,0 +1,73 @@
+# Dependencies
+node_modules/
+*/node_modules/
+
+# Expo
+.expo/
+.expo-shared/
+dist/
+web-build/
+
+# Native secrets
+*.orig.*
+*.jks
+*.p8
+*.p12
+*.key
+*.mobileprovision
+*.pem
+
+# Metro / debug
+.metro-health-check*
+npm-debug.*
+yarn-debug.*
+yarn-error.*
+
+# macOS
+.DS_Store
+
+# Local env
+.env
+.env*.local
+
+# TypeScript
+*.tsbuildinfo
+
+# iOS
+/mobile-app/ios/Pods/
+/mobile-app/ios/Podfile.lock
+/mobile-app/ios/*.xcworkspace
+/mobile-app/ios/build/
+/mobile-app/ios/.xcode.env.local
+/mobile-app/ios/Frameworks/
+
+# Android
+/mobile-app/android/build/
+/mobile-app/android/app/build/
+/mobile-app/android/.gradle/
+/mobile-app/android/local.properties
+/mobile-app/android/.cxx/
+/mobile-app/android/app/.cxx/
+/mobile-app/android/captures/
+/mobile-app/android/app/libs/*.aar
+/mobile-app/android/app/libs/*.jar
+
+# Yarn
+/mobile-app/.yarn/cache/
+/mobile-app/.yarn/install-state.gz
+
+# Go build artifacts
+/backend/*.aar
+/backend/*.xcframework
+
+# IDEs
+.vscode/
+.idea/
+.claude/
+*.swp
+*.swo
+*~
+
+# Nix
+.direnv/
+result

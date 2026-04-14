@@ -1,0 +1,37 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <linearGradient id="tileGrad" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#4b7df0"/>
+      <stop offset="55%"  stop-color="#2b57c8"/>
+      <stop offset="100%" stop-color="#1a347a"/>
+    </linearGradient>
+  </defs>
+
+  <rect width="1024" height="1024" fill="url(#tileGrad)"/>
+
+  <g stroke="#ffffff" stroke-width="20" stroke-linecap="round" fill="none">
+    <line x1="512"   y1="222" x2="763.1" y2="367"/>
+    <line x1="763.1" y1="367" x2="763.1" y2="657"/>
+    <line x1="763.1" y1="657" x2="512"   y2="802"/>
+    <line x1="512"   y1="802" x2="260.9" y2="657"/>
+    <line x1="260.9" y1="657" x2="260.9" y2="367"/>
+    <line x1="260.9" y1="367" x2="512"   y2="222"/>
+
+    <line x1="512"   y1="222" x2="763.1" y2="657"/>
+    <line x1="763.1" y1="657" x2="260.9" y2="657"/>
+    <line x1="260.9" y1="657" x2="512"   y2="222"/>
+
+    <line x1="763.1" y1="367" x2="512"   y2="802"/>
+    <line x1="512"   y1="802" x2="260.9" y2="367"/>
+    <line x1="260.9" y1="367" x2="763.1" y2="367"/>
+  </g>
+
+  <g fill="#ffffff">
+    <circle cx="512"   cy="222" r="42"/>
+    <circle cx="763.1" cy="367" r="42"/>
+    <circle cx="763.1" cy="657" r="42"/>
+    <circle cx="512"   cy="802" r="42"/>
+    <circle cx="260.9" cy="657" r="42"/>
+    <circle cx="260.9" cy="367" r="42"/>
+  </g>
+</svg>
