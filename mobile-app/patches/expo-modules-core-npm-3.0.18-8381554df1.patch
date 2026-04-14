@@ -1,0 +1,13 @@
+diff --git a/ios/JSI/EXJSIUtils.h b/ios/JSI/EXJSIUtils.h
+index 407f57ff19eb3ac1030db9d1f27493da9e44ca0e..6e7ca306e6a73593402ecba65c457199869a9f95 100644
+--- a/ios/JSI/EXJSIUtils.h
++++ b/ios/JSI/EXJSIUtils.h
+@@ -6,6 +6,8 @@
+ 
+ #import <jsi/jsi.h>
+ #import <React/RCTBridgeModule.h>
++#import <ReactCommon/CallInvoker.h>
++#import <react/bridging/CallbackWrapper.h>
+ #import <ReactCommon/TurboModuleUtils.h>
+ #import <ExpoModulesCore/ObjectDeallocator.h>
+ 
