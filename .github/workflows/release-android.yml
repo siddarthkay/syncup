@@ -1,8 +1,9 @@
 name: release-android
 
 on:
-  push:
-    branches: ['release/*']
+  pull_request:
+    types: [closed]
+    branches: [master, main]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -11,6 +12,7 @@ concurrency:
 jobs:
   lint-and-typecheck:
     name: lint + typecheck + go vet
+    if: github.event.pull_request.merged == true && startsWith(github.event.pull_request.head.ref, 'release/')
     runs-on: [self-hosted, linux]
     timeout-minutes: 15
     steps:
