@@ -32,9 +32,12 @@ build-ios: install pod-install
 		2>&1 | if command -v xcbeautify >/dev/null 2>&1; then xcbeautify; else cat; fi
 	@echo "✓ iOS app built at $(XCODE_DERIVEDDATA)/Build/Products/Release-iphonesimulator/syncup.app"
 
+VERSION_NAME ?= $(shell cat ../VERSION 2>/dev/null | tr -d '[:space:]')
+
 build-android: install
 	@echo "Building Android Release APK..."
-	@cd android && $(GRADLE) assembleRelease --no-daemon
+	@cd android && $(GRADLE) assembleRelease --no-daemon \
+		$(if $(VERSION_NAME),-PVERSION_NAME=$(VERSION_NAME))
 	@echo "✓ Android APK built at $(ANDROID_APK)"
 
 release-android: install

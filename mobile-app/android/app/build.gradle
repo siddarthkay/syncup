@@ -31,7 +31,7 @@ android {
         applicationId 'com.siddarthkay.syncup'
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
-        versionCode ((System.currentTimeMillis() / 60000) as int)
+        versionCode (System.getenv("FDROID_VERSION_CODE") ?: "${System.currentTimeMillis() / 60000}") as int
         versionName ((findProperty('VERSION_NAME') ?: '').isEmpty() ? '1.0.0' : findProperty('VERSION_NAME'))
 
         buildConfigField "String", "REACT_NATIVE_RELEASE_LEVEL", "\"${findProperty('reactNativeReleaseLevel') ?: 'stable'}\""
