@@ -102,6 +102,9 @@ class SyncthingService : Service() {
             val dataDir = Paths.syncthingDir(applicationContext)
             val foldersRoot = Paths.foldersRoot(applicationContext)
 
+            // Wire SAF bridge so SAF-backed folders can open through ContentResolver.
+            mobileAPI.setSAFBridge(SAFProvider(applicationContext))
+
             // must land before startServer so Load's migration step sees it.
             val stashOk = mobileAPI.setFoldersRoot(foldersRoot)
             Log.i(TAG, "pre-start setFoldersRoot=$foldersRoot ok=$stashOk hasAllFiles=${Paths.hasAllFilesAccess()}")

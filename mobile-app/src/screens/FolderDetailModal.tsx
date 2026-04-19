@@ -3,6 +3,7 @@ import {
   ActivityIndicator,
   Alert,
   Modal,
+  Platform,
   ScrollView,
   StyleSheet,
   Switch,
@@ -18,6 +19,7 @@ import { useSyncthing, useSyncthingClient } from '../daemon/SyncthingContext';
 import type { DbStatus, DeviceConfig, FolderConfig, FolderError } from '../api/types';
 import { colors, formatBytes, Progress } from '../components/ui';
 import { removeDir } from '../fs/bridgeFs';
+import GoBridge from '../GoServerBridgeJSI';
 import { FolderIgnoresEditor } from './FolderIgnoresEditor';
 import { FolderAdvancedEditor } from './FolderAdvancedEditor';
 import { FolderVersioningEditor } from './FolderVersioningEditor';
@@ -84,6 +86,7 @@ export function FolderDetailModal({
   const [isSelective, setIsSelective] = useState(false);
   const [selectedPathCount, setSelectedPathCount] = useState(0);
   const [encryptionPasswords, setEncryptionPasswords] = useState<Record<string, string>>({});
+  const [safPermissionValid, setSafPermissionValid] = useState(true);
   const [page, setPage] = useState<Page>('main');
 
   useEffect(() => {
@@ -101,6 +104,12 @@ export function FolderDetailModal({
       if (d.encryptionPassword) pwMap[d.deviceID] = d.encryptionPassword;
     }
     setEncryptionPasswords(pwMap);
+    // Check SAF permission on open
+    if (folder.filesystemType === 'saf' && Platform.OS === 'android') {
+      setSafPermissionValid(GoBridge.validateSafPermission(folder.path));
+    } else {
+      setSafPermissionValid(true);
+    }
     client.devices().then(setAllDevices).catch(e => setError(String(e)));
     client
       .getIgnores(folder.id)
@@ -465,7 +474,44 @@ export function FolderDetailModal({
             <View style={styles.card}>
               <Text style={styles.cardTitle}>Info</Text>
               <Row label="ID" value={folder.id} mono />
-              <Row label="Path" value={folder.path} mono multiline />
+              <Row
+                label="Path"
+                value={
+                  folder.filesystemType === 'saf'
+                    ? safPermissionValid
+                      ? GoBridge.getSafDisplayName(folder.path)
+                      : (folder.label || folder.id)
+                    : folder.path
+                }
+                mono
+                multiline
+              />
+              {folder.filesystemType === 'saf' && (
+                <Row label="Storage" value="Device folder (SAF)" />
+              )}
+              {folder.filesystemType === 'saf' && !safPermissionValid && (
+                <View style={styles.safPermWarn}>
+                  <Text style={styles.safPermWarnText}>
+                    Storage access was revoked. This folder cannot sync until you re-grant access.
+                  </Text>
+                  <TouchableOpacity
+                    style={styles.safPermBtn}
+                    onPress={() => {
+                      const uri = GoBridge.pickSafFolder();
+                      if (uri && uri === folder.path) {
+                        setSafPermissionValid(true);
+                      } else if (uri) {
+                        Alert.alert(
+                          'Different folder selected',
+                          'Please select the same folder to restore access.',
+                        );
+                      }
+                    }}
+                  >
+                    <Text style={styles.safPermBtnText}>Re-grant access</Text>
+                  </TouchableOpacity>
+                </View>
+              )}
               {status && (
                 <>
                   <Row label="State" value={folder.paused ? 'paused' : status.state} />
@@ -971,5 +1017,31 @@ const styles = StyleSheet.create({
   overrideBtnText: { color: colors.accent },
   deleteBtnFull: { marginTop: 12 },
   deleteBtnText: { color: colors.error },
+  safPermWarn: {
+    backgroundColor: colors.errorBg,
+    borderRadius: 8,
+    padding: 12,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: colors.errorBorder,
+  },
+  safPermWarnText: {
+    color: '#ffccd0',
+    fontSize: 12,
+    lineHeight: 17,
+    marginBottom: 8,
+  },
+  safPermBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 14,
+    alignSelf: 'flex-start',
+  },
+  safPermBtnText: {
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: '600',
+  },
   error: { color: colors.error, fontSize: 13, marginBottom: 12 },
 });

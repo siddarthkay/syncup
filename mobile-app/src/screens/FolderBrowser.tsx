@@ -27,6 +27,7 @@ import { Icon } from '../components/Icon';
 import { isPathSelected, togglePath } from '../utils/selectiveSync';
 import { listSubdirs, resolvePath, zipDir } from '../fs/bridgeFs';
 import { FilePreviewModal } from './FilePreviewModal';
+import GoBridge from '../GoServerBridgeJSI';
 
 interface Props {
   folder: FolderConfig;
@@ -86,6 +87,8 @@ export function FolderBrowser({ folder, isSelective, onBack }: Props) {
   const [preview, setPreview] = useState<TreeEntry | null>(null);
   const [localStates, setLocalStates] = useState<Record<string, LocalState>>({});
   const [resolvedFolderPath, setResolvedFolderPath] = useState(() => {
+    // SAF folders use content:// URIs -- no path resolution needed.
+    if (folder.path.startsWith('content://')) return folder.path;
     // folder.path can be relative (e.g. "memes"). The daemon resolves it
     // from its own CWD (which on iOS is the bundle dir, not Documents).
     // Use the Go bridge's resolvePath to get the absolute path exactly as
@@ -947,6 +950,15 @@ function formatModTime(iso: string): string {
 }
 
 function onDiskUri(folderPath: string, rel: string): string {
+  if (folderPath.startsWith('content://')) {
+    // SAF folders: copy the file to the app's cache dir via the bridge,
+    // then return a file:// URI pointing at the cache copy.
+    try {
+      const cachePath = GoBridge.copySafFileToCache(folderPath, rel);
+      if (cachePath) return `file://${cachePath}`;
+    } catch { /* fall through */ }
+    return '';
+  }
   const base = folderPath.endsWith('/') ? folderPath.slice(0, -1) : folderPath;
   const joined = rel ? `${base}/${rel}` : base;
   return joined.startsWith('file://') ? joined : `file://${joined}`;

@@ -23,7 +23,29 @@ var (
 	globalClient       *Client
 	globalMu           sync.Mutex
 	pendingFoldersRoot string
+	globalSAFBridge    SAFBridge
 )
+
+// SetSAFBridge registers the Kotlin-side SAF implementation so the "saf"
+// filesystem type can delegate file operations through JNI.
+// Must be called before any SAF-backed folder is loaded.
+func (m *MobileAPI) SetSAFBridge(bridge SAFBridge) {
+	globalMu.Lock()
+	defer globalMu.Unlock()
+	globalSAFBridge = bridge
+}
+
+// ValidateSAFPermission checks whether the app still holds read+write access
+// for the given tree URI. Returns true if valid, false if revoked.
+func (m *MobileAPI) ValidateSAFPermission(treeURI string) bool {
+	globalMu.Lock()
+	bridge := globalSAFBridge
+	globalMu.Unlock()
+	if bridge == nil {
+		return false
+	}
+	return bridge.ValidatePermission(treeURI)
+}
 
 func (m *MobileAPI) StartServer(dataDir string) int {
 	globalMu.Lock()

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FormModal } from '../components/FormModal';
 import { Field } from '../components/Field';
 import { colors } from '../components/ui';
@@ -7,6 +7,7 @@ import { useSyncthing, useSyncthingClient } from '../daemon/SyncthingContext';
 import type { DeviceConfig, FolderConfig } from '../api/types';
 import { FolderPicker } from './FolderPicker';
 import { FolderTypePicker } from '../components/FolderTypePicker';
+import GoBridge from '../GoServerBridgeJSI';
 
 const FOLDER_ID_RE = /^[a-z0-9][a-z0-9-_.]*$/;
 
@@ -35,6 +36,8 @@ export function AddFolderModal({ visible, onClose, onAdded }: Props) {
   const client = useSyncthingClient();
 
   const [path, setPath] = useState('');
+  const [isSAF, setIsSAF] = useState(false);
+  const [safDisplayName, setSafDisplayName] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const [label, setLabel] = useState('');
@@ -58,10 +61,10 @@ export function AddFolderModal({ visible, onClose, onAdded }: Props) {
   // auto-fill label/id from path unless the user's already typed in them
   useEffect(() => {
     if (!path) return;
-    const name = basename(path);
+    const name = isSAF ? (safDisplayName || 'folder') : basename(path);
     if (!labelDirty) setLabel(name);
     if (!idDirty) setId(slugify(name));
-  }, [path, labelDirty, idDirty]);
+  }, [path, labelDirty, idDirty, isSAF, safDisplayName]);
 
   const peerDevices = useMemo(
     () => devices.filter(d => d.deviceID !== info?.deviceId),
@@ -72,20 +75,36 @@ export function AddFolderModal({ visible, onClose, onAdded }: Props) {
 
   const displayPath = useMemo(() => {
     if (!path) return '';
+    if (isSAF) return safDisplayName || 'Device folder';
     if (pickerRoot && path.startsWith(pickerRoot)) {
       const rel = path.slice(pickerRoot.length) || '';
       return rel ? `folders${rel}` : 'folders/';
     }
     return path;
-  }, [path, pickerRoot]);
+  }, [path, pickerRoot, isSAF, safDisplayName]);
 
   const effectiveId = id || slugify(basename(path));
   const effectiveLabel = label || basename(path);
   const idValid = FOLDER_ID_RE.test(effectiveId);
   const canSubmit = path.length > 0 && idValid;
 
+  const pickSafFolder = () => {
+    try {
+      const uri = GoBridge.pickSafFolder();
+      if (!uri) return;
+      setPath(uri);
+      setIsSAF(true);
+      const displayName = GoBridge.getSafDisplayName(uri);
+      setSafDisplayName(displayName || 'Device folder');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const reset = () => {
     setPath('');
+    setIsSAF(false);
+    setSafDisplayName('');
     setLabel('');
     setLabelDirty(false);
     setId('');
@@ -127,12 +146,12 @@ export function AddFolderModal({ visible, onClose, onAdded }: Props) {
       const folder: FolderConfig = {
         id: effectiveId,
         label: effectiveLabel,
-        filesystemType: 'basic',
+        filesystemType: isSAF ? 'saf' : 'basic',
         path,
         type: folderType,
         devices: folderDevices,
-        rescanIntervalS: 3600,
-        fsWatcherEnabled: true,
+        rescanIntervalS: isSAF ? 60 : 3600,
+        fsWatcherEnabled: !isSAF,
         fsWatcherDelayS: 10,
         ignorePerms: true,
         autoNormalize: true,
@@ -175,19 +194,50 @@ export function AddFolderModal({ visible, onClose, onAdded }: Props) {
         submitDisabled={!canSubmit}
       >
         <Text style={styles.sectionLabel}>Location</Text>
-        <TouchableOpacity
-          style={[styles.pickerBtn, !path && styles.pickerBtnEmpty]}
-          onPress={() => setPickerOpen(true)}
-          disabled={!pickerRoot}
-        >
-          <Text style={[styles.pickerBtnText, !path && styles.pickerBtnTextEmpty]} numberOfLines={2}>
-            {displayPath || 'Pick folder…'}
-          </Text>
-          <Text style={styles.pickerArrow}>›</Text>
-        </TouchableOpacity>
-        <Text style={styles.hint}>
-          Folders live inside the app's sandbox and appear in the Files app on iOS.
-        </Text>
+        {Platform.OS === 'android' ? (
+          <>
+            <TouchableOpacity
+              style={[styles.pickerBtn, !path && styles.pickerBtnEmpty]}
+              onPress={isSAF ? pickSafFolder : pickSafFolder}
+            >
+              <Text style={[styles.pickerBtnText, !path && styles.pickerBtnTextEmpty]} numberOfLines={2}>
+                {displayPath || 'Pick folder…'}
+              </Text>
+              <Text style={styles.pickerArrow}>›</Text>
+            </TouchableOpacity>
+            <Text style={styles.hint}>
+              {isSAF
+                ? 'Syncing directly with this device folder.'
+                : 'Pick any folder on your device to sync.'}
+            </Text>
+            {!isSAF && (
+              <TouchableOpacity style={styles.safBtn} onPress={() => setPickerOpen(true)} disabled={!pickerRoot}>
+                <Text style={styles.safBtnText}>Use app storage instead</Text>
+              </TouchableOpacity>
+            )}
+            {isSAF && (
+              <TouchableOpacity style={styles.safBtn} onPress={() => { setIsSAF(false); setPath(''); setSafDisplayName(''); }}>
+                <Text style={styles.safBtnText}>Use app storage instead</Text>
+              </TouchableOpacity>
+            )}
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={[styles.pickerBtn, !path && styles.pickerBtnEmpty]}
+              onPress={() => setPickerOpen(true)}
+              disabled={!pickerRoot}
+            >
+              <Text style={[styles.pickerBtnText, !path && styles.pickerBtnTextEmpty]} numberOfLines={2}>
+                {displayPath || 'Pick folder…'}
+              </Text>
+              <Text style={styles.pickerArrow}>›</Text>
+            </TouchableOpacity>
+            <Text style={styles.hint}>
+              Folders live inside the app's sandbox and appear in the Files app.
+            </Text>
+          </>
+        )}
 
         {path && (
           <View style={styles.summary}>
@@ -355,5 +405,15 @@ const styles = StyleSheet.create({
   advancedToggle: { marginTop: 18, paddingVertical: 8 },
   advancedToggleText: { color: colors.textDim, fontSize: 13, fontWeight: '500' },
   advanced: { marginTop: 8 },
+  safBtn: {
+    marginTop: 4,
+    marginBottom: 12,
+    paddingVertical: 8,
+  },
+  safBtnText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '500',
+  },
   error: { color: colors.error, fontSize: 13, marginTop: 8 },
 });

@@ -1,11 +1,12 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FormModal } from '../components/FormModal';
 import { colors } from '../components/ui';
 import { useSyncthing, useSyncthingClient } from '../daemon/SyncthingContext';
 import type { DeviceConfig, FolderConfig, PendingFolderOffer } from '../api/types';
 import { FolderPicker } from './FolderPicker';
 import { FolderTypePicker } from '../components/FolderTypePicker';
+import GoBridge from '../GoServerBridgeJSI';
 
 interface Props {
   visible: boolean;
@@ -19,6 +20,8 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
   const client = useSyncthingClient();
 
   const [path, setPath] = useState('');
+  const [isSAF, setIsSAF] = useState(false);
+  const [safDisplayName, setSafDisplayName] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [allDevices, setAllDevices] = useState<DeviceConfig[]>([]);
   const [extraPeers, setExtraPeers] = useState<Set<string>>(new Set());
@@ -29,6 +32,8 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
   useEffect(() => {
     if (!visible) return;
     setPath('');
+    setIsSAF(false);
+    setSafDisplayName('');
     setExtraPeers(new Set());
     // encrypted slot from the peer => receiveencrypted, else two-way
     setFolderType(offer?.receiveEncrypted ? 'receiveencrypted' : 'sendreceive');
@@ -39,14 +44,28 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
 
   const pickerRoot = info?.foldersRoot ?? '';
 
+  const pickSafFolder = () => {
+    try {
+      const uri = GoBridge.pickSafFolder();
+      if (!uri) return;
+      setPath(uri);
+      setIsSAF(true);
+      const displayName = GoBridge.getSafDisplayName(uri);
+      setSafDisplayName(displayName || 'Device folder');
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const displayPath = useMemo(() => {
     if (!path) return '';
+    if (isSAF) return safDisplayName || 'Device folder';
     if (pickerRoot && path.startsWith(pickerRoot)) {
       const rel = path.slice(pickerRoot.length) || '/';
       return `folders${rel}`;
     }
     return path;
-  }, [path, pickerRoot]);
+  }, [path, pickerRoot, isSAF, safDisplayName]);
 
   const otherPeers = useMemo(
     () =>
@@ -86,12 +105,12 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
       const folder: FolderConfig = {
         id: offer.folderId,
         label: offer.label || offer.folderId,
-        filesystemType: 'basic',
+        filesystemType: isSAF ? 'saf' : 'basic',
         path,
         type: folderType,
         devices,
-        rescanIntervalS: 3600,
-        fsWatcherEnabled: true,
+        rescanIntervalS: isSAF ? 60 : 3600,
+        fsWatcherEnabled: !isSAF,
         fsWatcherDelayS: 10,
         ignorePerms: true,
         autoNormalize: true,
@@ -141,19 +160,49 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
         </View>
 
         <Text style={styles.sectionLabel}>Where to store it</Text>
-        <TouchableOpacity
-          style={[styles.pickerBtn, !path && styles.pickerBtnEmpty]}
-          onPress={() => setPickerOpen(true)}
-          disabled={!pickerRoot}
-        >
-          <Text style={[styles.pickerBtnText, !path && styles.pickerBtnTextEmpty]} numberOfLines={2}>
-            {displayPath || 'Pick folder…'}
-          </Text>
-          <Text style={styles.pickerArrow}>›</Text>
-        </TouchableOpacity>
-        <Text style={styles.hint}>
-          Files from the peer will be copied into this directory.
-        </Text>
+        {Platform.OS === 'android' ? (
+          <>
+            <TouchableOpacity
+              style={[styles.pickerBtn, !path && styles.pickerBtnEmpty]}
+              onPress={pickSafFolder}
+            >
+              <Text style={[styles.pickerBtnText, !path && styles.pickerBtnTextEmpty]} numberOfLines={2}>
+                {displayPath || 'Pick folder…'}
+              </Text>
+              <Text style={styles.pickerArrow}>›</Text>
+            </TouchableOpacity>
+            <Text style={styles.hint}>
+              {isSAF
+                ? 'Syncing directly with this device folder.'
+                : 'Pick any folder on your device.'}
+            </Text>
+            {isSAF ? (
+              <TouchableOpacity style={styles.safBtn} onPress={() => { setIsSAF(false); setPath(''); setSafDisplayName(''); }}>
+                <Text style={styles.safBtnText}>Use app storage instead</Text>
+              </TouchableOpacity>
+            ) : (
+              <TouchableOpacity style={styles.safBtn} onPress={() => setPickerOpen(true)} disabled={!pickerRoot}>
+                <Text style={styles.safBtnText}>Use app storage instead</Text>
+              </TouchableOpacity>
+            )}
+          </>
+        ) : (
+          <>
+            <TouchableOpacity
+              style={[styles.pickerBtn, !path && styles.pickerBtnEmpty]}
+              onPress={() => setPickerOpen(true)}
+              disabled={!pickerRoot}
+            >
+              <Text style={[styles.pickerBtnText, !path && styles.pickerBtnTextEmpty]} numberOfLines={2}>
+                {displayPath || 'Pick folder…'}
+              </Text>
+              <Text style={styles.pickerArrow}>›</Text>
+            </TouchableOpacity>
+            <Text style={styles.hint}>
+              Files from the peer will be stored in this directory.
+            </Text>
+          </>
+        )}
 
         <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Folder type</Text>
         <FolderTypePicker value={folderType} onChange={setFolderType} />
@@ -280,5 +329,15 @@ const styles = StyleSheet.create({
   },
   checkboxOn: { borderColor: colors.accent, backgroundColor: colors.accent },
   checkmark: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  safBtn: {
+    marginTop: 4,
+    marginBottom: 12,
+    paddingVertical: 8,
+  },
+  safBtnText: {
+    color: colors.accent,
+    fontSize: 13,
+    fontWeight: '500',
+  },
   error: { color: colors.error, fontSize: 13, marginTop: 12 },
 });

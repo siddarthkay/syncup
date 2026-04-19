@@ -36,6 +36,12 @@ export interface Spec extends TurboModule {
     label: string,
     sampleError: string,
   ) => boolean;
+  readonly pickSafFolder: () => string;
+  readonly getSafPersistedUris: () => string;
+  readonly revokeSafPermission: (uri: string) => boolean;
+  readonly getSafDisplayName: (uri: string) => string;
+  readonly validateSafPermission: (uri: string) => boolean;
+  readonly copySafFileToCache: (treeURI: string, relativePath: string) => string;
 }
 
 export default TurboModuleRegistry.getEnforcing<Spec>('GoServerBridge');

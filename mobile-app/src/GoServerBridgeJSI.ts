@@ -35,6 +35,12 @@ export interface GoServerBridgeInterface {
     label: string,
     sampleError: string,
   ): boolean;
+  pickSafFolder(): string;
+  getSafPersistedUris(): string;
+  revokeSafPermission(uri: string): boolean;
+  getSafDisplayName(uri: string): string;
+  validateSafPermission(uri: string): boolean;
+  copySafFileToCache(treeURI: string, relativePath: string): string;
 }
 
 class GoServerBridgeJSI implements GoServerBridgeInterface {
@@ -162,6 +168,29 @@ class GoServerBridgeJSI implements GoServerBridgeInterface {
       label,
       sampleError,
     );
+  }
+  pickSafFolder(): string {
+    return NativeGoServerBridge.pickSafFolder();
+  }
+
+  getSafPersistedUris(): string {
+    return NativeGoServerBridge.getSafPersistedUris();
+  }
+
+  revokeSafPermission(uri: string): boolean {
+    return NativeGoServerBridge.revokeSafPermission(uri);
+  }
+
+  getSafDisplayName(uri: string): string {
+    return NativeGoServerBridge.getSafDisplayName(uri);
+  }
+
+  validateSafPermission(uri: string): boolean {
+    return NativeGoServerBridge.validateSafPermission(uri);
+  }
+
+  copySafFileToCache(treeURI: string, relativePath: string): string {
+    return NativeGoServerBridge.copySafFileToCache(treeURI, relativePath);
   }
 }
 

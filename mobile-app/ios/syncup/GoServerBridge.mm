@@ -159,6 +159,31 @@ bool GoServerBridgeImpl::maybeNotifyFolderErrors(facebook::jsi::Runtime &rt,
                                                           label:lbl
                                                          sample:smp];
 }
+
+// SAF stubs - Android-only features; return empty/false on iOS.
+facebook::jsi::String GoServerBridgeImpl::pickSafFolder(facebook::jsi::Runtime &rt) {
+    return facebook::jsi::String::createFromUtf8(rt, "");
+}
+
+facebook::jsi::String GoServerBridgeImpl::getSafPersistedUris(facebook::jsi::Runtime &rt) {
+    return facebook::jsi::String::createFromUtf8(rt, "[]");
+}
+
+bool GoServerBridgeImpl::revokeSafPermission(facebook::jsi::Runtime &rt, facebook::jsi::String uri) {
+    return false;
+}
+
+facebook::jsi::String GoServerBridgeImpl::getSafDisplayName(facebook::jsi::Runtime &rt, facebook::jsi::String uri) {
+    return facebook::jsi::String::createFromUtf8(rt, "");
+}
+
+bool GoServerBridgeImpl::validateSafPermission(facebook::jsi::Runtime &rt, facebook::jsi::String uri) {
+    return false;
+}
+
+facebook::jsi::String GoServerBridgeImpl::copySafFileToCache(facebook::jsi::Runtime &rt, facebook::jsi::String treeURI, facebook::jsi::String relativePath) {
+    return facebook::jsi::String::createFromUtf8(rt, "");
+}
 #endif
 
 @implementation GoServerBridge

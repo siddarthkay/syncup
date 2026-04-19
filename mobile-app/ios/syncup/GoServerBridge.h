@@ -42,6 +42,13 @@ public:
                                  double count,
                                  facebook::jsi::String label,
                                  facebook::jsi::String sampleError);
+    // SAF stubs (Android-only; no-ops on iOS)
+    facebook::jsi::String pickSafFolder(facebook::jsi::Runtime &rt);
+    facebook::jsi::String getSafPersistedUris(facebook::jsi::Runtime &rt);
+    bool revokeSafPermission(facebook::jsi::Runtime &rt, facebook::jsi::String uri);
+    facebook::jsi::String getSafDisplayName(facebook::jsi::Runtime &rt, facebook::jsi::String uri);
+    bool validateSafPermission(facebook::jsi::Runtime &rt, facebook::jsi::String uri);
+    facebook::jsi::String copySafFileToCache(facebook::jsi::Runtime &rt, facebook::jsi::String treeURI, facebook::jsi::String relativePath);
 };
 #endif
 

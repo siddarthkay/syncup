@@ -1,5 +1,7 @@
 package com.siddarthkay.syncup
 
+import android.content.Intent
+import android.net.Uri
 import com.facebook.react.bridge.ReactApplicationContext
 import com.facebook.react.module.annotations.ReactModule
 
@@ -19,6 +21,12 @@ class GoServerBridgeModule(reactContext: ReactApplicationContext) :
 
     private val mobileAPI = MobileAPI()
     private val ctx = reactContext
+    private val safProvider = SAFProvider(reactContext.applicationContext)
+
+    init {
+        // Wire the SAF bridge so Go's "saf" filesystem type can call through to Kotlin.
+        mobileAPI.setSAFBridge(safProvider)
+    }
 
     override fun getName(): String = NAME
 
@@ -283,6 +291,90 @@ class GoServerBridgeModule(reactContext: ReactApplicationContext) :
             label,
             sampleError,
         )
+    }
+
+    override fun pickSafFolder(): String {
+        // Launch the system SAF folder picker synchronously from the JS thread.
+        // We use SAFPickerHelper which is registered on the Activity and blocks
+        // until the user picks a folder or cancels.
+        val activity = ctx.currentActivity as? MainActivity
+            ?: return ""
+        val uri = activity.pickSafFolderBlocking() ?: return ""
+        // Take persistable read+write permission so the URI survives app restarts.
+        val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+            Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+        ctx.contentResolver.takePersistableUriPermission(uri, flags)
+        return uri.toString()
+    }
+
+    override fun getSafPersistedUris(): String {
+        return try {
+            val perms = ctx.contentResolver.persistedUriPermissions
+            val arr = org.json.JSONArray()
+            for (p in perms) {
+                arr.put(p.uri.toString())
+            }
+            arr.toString()
+        } catch (e: Exception) {
+            "[]"
+        }
+    }
+
+    override fun revokeSafPermission(uri: String): Boolean {
+        return try {
+            val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
+                Intent.FLAG_GRANT_WRITE_URI_PERMISSION
+            ctx.contentResolver.releasePersistableUriPermission(Uri.parse(uri), flags)
+            true
+        } catch (e: Exception) {
+            android.util.Log.e(NAME, "revokeSafPermission failed", e)
+            false
+        }
+    }
+
+    override fun getSafDisplayName(uri: String): String {
+        return try {
+            safProvider.getDisplayName(uri)
+        } catch (e: Exception) {
+            android.util.Log.e(NAME, "getSafDisplayName failed", e)
+            uri
+        }
+    }
+
+    override fun copySafFileToCache(treeURI: String, relativePath: String): String {
+        return try {
+            val treeUri = android.net.Uri.parse(treeURI)
+            // Resolve the document ID and build the document URI
+            val fd = safProvider.openFd(treeURI, relativePath, "r")
+            val input = java.io.FileInputStream(java.io.FileDescriptor().also {
+                // Use ParcelFileDescriptor to wrap the fd for proper stream creation
+            })
+            // Simpler: re-open through the provider to get an InputStream
+            val pfd = android.os.ParcelFileDescriptor.adoptFd(fd.toInt())
+            val inputStream = java.io.FileInputStream(pfd.fileDescriptor)
+
+            // Write to cache dir preserving the filename
+            val fileName = relativePath.substringAfterLast('/')
+            val cacheFile = java.io.File(ctx.cacheDir, "saf-preview/$fileName")
+            cacheFile.parentFile?.mkdirs()
+            cacheFile.outputStream().use { out ->
+                inputStream.use { inp -> inp.copyTo(out) }
+            }
+            pfd.close()
+            cacheFile.absolutePath
+        } catch (e: Exception) {
+            android.util.Log.e(NAME, "copySafFileToCache failed", e)
+            ""
+        }
+    }
+
+    override fun validateSafPermission(uri: String): Boolean {
+        return try {
+            mobileAPI.validateSAFPermission(uri)
+        } catch (e: Exception) {
+            android.util.Log.e(NAME, "validateSafPermission failed", e)
+            false
+        }
     }
 
     override fun openFolderInFileManager(path: String): Boolean {
