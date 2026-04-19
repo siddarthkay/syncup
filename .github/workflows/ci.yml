@@ -79,43 +79,6 @@ jobs:
         with:
           packages: 'tools platform-tools platforms;android-36 build-tools;36.0.0 ndk;26.1.10909125'
 
-      - name: Cache yarn state
-        uses: actions/cache@v4
-        with:
-          path: |
-            mobile-app/.yarn/cache
-            mobile-app/.yarn/install-state.gz
-          key: yarn-${{ runner.os }}-${{ hashFiles('mobile-app/yarn.lock') }}
-          restore-keys: |
-            yarn-${{ runner.os }}-
-
-      - name: Cache Gradle
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ runner.os }}-${{ hashFiles('mobile-app/android/**/*.gradle*', 'mobile-app/android/gradle/wrapper/gradle-wrapper.properties') }}
-          restore-keys: |
-            gradle-${{ runner.os }}-
-
-      - name: Cache Go modules
-        uses: actions/cache@v4
-        with:
-          path: ~/go/pkg/mod
-          key: go-mod-${{ runner.os }}-${{ hashFiles('backend/go.sum') }}
-          restore-keys: |
-            go-mod-${{ runner.os }}-
-
-      - name: Cache gomobile toolchain
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/go/bin/gomobile
-            ~/go/bin/gobind
-            ~/go/pkg/gomobile
-          key: gomobile-${{ runner.os }}-${{ env.GO_VERSION }}-${{ hashFiles('backend/go.sum') }}
-
       - name: Build Android APK (via nix)
         run: make android
 
