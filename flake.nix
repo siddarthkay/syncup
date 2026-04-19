@@ -24,14 +24,14 @@
             # Java (Android builds)
             jdk17
 
-            # iOS
-            cocoapods
-            xcbeautify
-
             # Utilities
             git
             gnumake
             watchman
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+            # iOS (darwin-only)
+            cocoapods
+            xcbeautify
           ];
 
           shellHook = ''
