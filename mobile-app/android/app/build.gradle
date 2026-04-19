@@ -75,6 +75,10 @@ android {
     androidResources {
         ignoreAssetsPattern '!.svn:!.git:!.ds_store:!*.scc:!CVS:!thumbs.db:!picasa.ini:!*~'
     }
+    dependenciesInfo {
+        includeInApk = false
+        includeInBundle = false
+    }
 }
 
 ["pickFirsts", "excludes", "merges", "doNotStrip"].each { prop ->
@@ -90,9 +94,26 @@ android {
     }
 }
 
+configurations.all {
+    exclude group: 'com.google.mlkit', module: 'barcode-scanning'
+    exclude group: 'com.google.mlkit', module: 'vision-common'
+    exclude group: 'com.google.mlkit', module: 'common'
+    exclude group: 'com.google.android.gms', module: 'play-services-code-scanner'
+    exclude group: 'com.google.android.gms', module: 'play-services-tasks'
+    exclude group: 'com.google.android.gms', module: 'play-services-base'
+    exclude group: 'androidx.camera', module: 'camera-mlkit-vision'
+}
+
 dependencies {
     implementation("com.facebook.react:react-android")
     implementation files('libs/gobridge.aar')
+    implementation "com.google.zxing:core:3.5.3"
+    def camerax_version = "1.5.0-rc01"
+    implementation "androidx.camera:camera-core:${camerax_version}"
+    implementation "androidx.camera:camera-camera2:${camerax_version}"
+    implementation "androidx.camera:camera-lifecycle:${camerax_version}"
+    implementation "androidx.camera:camera-view:${camerax_version}"
+    implementation "com.google.guava:guava:33.1.0-android"
 
     def isGifEnabled = (findProperty('expo.gif.enabled') ?: "") == "true";
     def isWebpEnabled = (findProperty('expo.webp.enabled') ?: "") == "true";

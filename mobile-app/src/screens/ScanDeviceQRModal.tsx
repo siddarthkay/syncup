@@ -7,7 +7,7 @@ import {
   TouchableOpacity,
   View,
 } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { QRScanner, useCameraPermissions } from '../components/QRScannerView';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../components/ui';
 
@@ -91,14 +91,12 @@ export function ScanDeviceQRModal({ visible, onCancel, onScanned }: Props) {
                 </TouchableOpacity>
               )}
             </View>
-          ) : (
-            <CameraView
-              style={StyleSheet.absoluteFill}
-              facing="back"
-              barcodeScannerSettings={{ barcodeTypes: ['qr'] }}
-              onBarcodeScanned={scannedOnce ? undefined : handleScan}
-            />
-          )}
+          ) : !scannedOnce ? (
+              <QRScanner
+                style={StyleSheet.absoluteFill}
+                onScanned={(data) => handleScan({ data })}
+              />
+          ) : null}
 
           <View pointerEvents="none" style={styles.reticle} />
         </View>

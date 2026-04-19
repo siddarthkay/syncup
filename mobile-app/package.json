@@ -62,6 +62,15 @@
       "javaPackageName": "com.siddarthkay.syncup"
     }
   },
+  "expo": {
+    "autolinking": {
+      "exclude": {
+        "android": [
+          "expo-camera"
+        ]
+      }
+    }
+  },
   "private": true,
   "resolutions": {
     "expo-modules-core@npm:3.0.18": "patch:expo-modules-core@npm%3A3.0.18#./patches/expo-modules-core-npm-3.0.18-8381554df1.patch",
