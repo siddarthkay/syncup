@@ -32,6 +32,10 @@
             # iOS (darwin-only)
             cocoapods
             xcbeautify
+          ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
+            # macOS provides clang via Xcode; on Linux we need a C
+            # compiler for cgo (gomobile, etc.)
+            gcc
           ];
 
           shellHook = ''
