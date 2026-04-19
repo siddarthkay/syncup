@@ -23,6 +23,7 @@
 
             # Java (Android builds)
             jdk17
+            gradle_9
 
             # Utilities
             git

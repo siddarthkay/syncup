@@ -1,5 +1,5 @@
 YARN ?= yarn
-GRADLEW = android/gradlew
+GRADLE ?= gradle
 ANDROID_APK = android/app/build/outputs/apk/release/app-release.apk
 
 XCODE_WORKSPACE = ios/syncup.xcworkspace
@@ -34,8 +34,7 @@ build-ios: install pod-install
 
 build-android: install
 	@echo "Building Android Release APK..."
-	@chmod +x $(GRADLEW)
-	@cd android && ./gradlew assembleRelease --no-daemon
+	@cd android && $(GRADLE) assembleRelease --no-daemon
 	@echo "✓ Android APK built at $(ANDROID_APK)"
 
 run-ios:
