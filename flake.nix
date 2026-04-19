@@ -9,7 +9,32 @@
   outputs = { self, nixpkgs, flake-utils }:
     flake-utils.lib.eachDefaultSystem (system:
       let
-        pkgs = import nixpkgs { inherit system; config.allowUnfree = true; };
+        # overlay to match mobile-app/android/gradle-wrapper.properties
+        gradleOverlay = final: prev: {
+          gradle = final.stdenv.mkDerivation rec {
+            pname = "gradle";
+            version = "9.0";
+            src = final.fetchurl {
+              url = "https://services.gradle.org/distributions/gradle-${version}-bin.zip";
+              sha256 = "0aq78sx4bgwkknyk5y85q1ykdyf72xk02a9x7w8ii9bc55w3vbcg";
+            };
+            nativeBuildInputs = [ final.unzip final.makeWrapper ];
+            dontBuild = true;
+            installPhase = ''
+              mkdir -p $out/libexec/gradle
+              cp -r . $out/libexec/gradle/
+              mkdir -p $out/bin
+              makeWrapper $out/libexec/gradle/bin/gradle $out/bin/gradle \
+                --set JAVA_HOME ${final.jdk17.home}
+            '';
+          };
+        };
+
+        pkgs = import nixpkgs {
+          inherit system;
+          config.allowUnfree = true;
+          overlays = [ gradleOverlay ];
+        };
       in
       {
         devShells.default = pkgs.mkShellNoCC {
@@ -23,7 +48,7 @@
 
             # Java (Android builds)
             jdk17
-            gradle_9
+            gradle
 
             # Utilities
             git
