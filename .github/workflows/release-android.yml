@@ -96,5 +96,6 @@ jobs:
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: v${{ steps.version.outputs.version }}
+          draft: true
           generate_release_notes: true
           files: apks/syncup-*.apk

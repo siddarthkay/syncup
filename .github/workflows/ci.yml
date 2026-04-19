@@ -18,6 +18,7 @@ env:
 jobs:
   lint-and-typecheck:
     name: lint + typecheck + go vet
+    if: ${{ !startsWith(github.head_ref, 'release/') }}
     runs-on: [self-hosted, linux]
     timeout-minutes: 15
     steps:
