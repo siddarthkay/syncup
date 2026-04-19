@@ -37,6 +37,13 @@ build-android: install
 	@cd android && $(GRADLE) assembleRelease --no-daemon
 	@echo "✓ Android APK built at $(ANDROID_APK)"
 
+release-android: install
+	@echo "Building Android Release APK ($(ANDROID_ABI))..."
+	@cd android && $(GRADLE) assembleRelease --no-daemon \
+		-PVERSION_NAME=$(VERSION_NAME) \
+		-PreactNativeArchitectures=$(ANDROID_ABI)
+	@echo "✓ Android release APK built"
+
 run-ios:
 	@npx expo run:ios
 

@@ -7,6 +7,14 @@ GOBIND ?= $(GOPATH)/bin/gobind
 ANDROID_OUTPUT = ../mobile-app/android/app/libs/gobridge.aar
 IOS_OUTPUT = ../mobile-app/ios/Frameworks/Gobridge.xcframework
 
+# Map ABI names to gomobile targets:
+#   arm64-v8a  → android/arm64
+#   x86_64     → android/amd64
+#   armeabi-v7a→ android/arm
+#   x86        → android/386
+# Default: arm64 only (covers CI and local dev).
+# Release builds pass both: ANDROID_TARGETS=android/arm64,android/amd64
+ANDROID_TARGETS ?= android/arm64
 ANDROID_API = 23
 
 .PHONY: all setup android ios clean check-go install-gomobile
@@ -39,7 +47,7 @@ android: setup
 	@mkdir -p $(dir $(ANDROID_OUTPUT))
 	@$(GO) get golang.org/x/mobile/bind
 	@GOPATH=$(GOPATH) PATH=$(GOPATH)/bin:$(GOROOT)/bin:$$PATH $(GOMOBILE) bind \
-		-target=android/arm64,android/amd64 \
+		-target=$(ANDROID_TARGETS) \
 		-androidapi $(ANDROID_API) \
 		-tags noassets \
 		-ldflags=-checklinkname=0 \
