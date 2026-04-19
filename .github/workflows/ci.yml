@@ -18,51 +18,15 @@ env:
 jobs:
   lint-and-typecheck:
     name: lint + typecheck + go vet
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux]
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: ${{ env.NODE_VERSION }}
-
-      - name: Enable Corepack
-        run: corepack enable
-
-      - name: Set up Go
-        uses: actions/setup-go@v5
-        with:
-          go-version: ${{ env.GO_VERSION }}
-          cache: true
-          cache-dependency-path: backend/go.sum
-
-      - name: Cache yarn state
-        uses: actions/cache@v4
-        with:
-          path: |
-            mobile-app/.yarn/cache
-            mobile-app/.yarn/install-state.gz
-          key: yarn-${{ runner.os }}-${{ hashFiles('mobile-app/yarn.lock') }}
-          restore-keys: |
-            yarn-${{ runner.os }}-
-
-      - name: Install JS deps
-        working-directory: mobile-app
-        run: yarn install --immutable
-
-      - name: ESLint
-        working-directory: mobile-app
-        run: yarn lint
-
-      - name: Typecheck (tsc --noEmit)
-        working-directory: mobile-app
-        run: yarn typecheck
-
-      - name: go vet
-        working-directory: backend
-        run: go vet -tags noassets ./...
+      - name: Lint and typecheck
+        run: |
+          cd mobile-app && yarn install --immutable && yarn lint && yarn typecheck
+          cd ../backend && go vet -tags noassets ./...
 
   android:
     name: android build
