@@ -7,6 +7,12 @@ GOBIND ?= $(GOPATH)/bin/gobind
 ANDROID_OUTPUT = ../mobile-app/android/app/libs/gobridge.aar
 IOS_OUTPUT = ../mobile-app/ios/Frameworks/Gobridge.xcframework
 
+# Fixed path we symlink the backend to before running `gomobile bind`, so the
+# absolute source path embedded in libgojni.so is the
+# same regardless of where the checkout actually lives (F-Droid's
+# /home/vagrant/build/... vs CI's /home/siddarth/.../gh-runners/...).
+REPRO_BUILD_DIR = /tmp/syncup-backend-build
+
 # Map ABI names to gomobile targets:
 #   arm64-v8a  → android/arm64
 #   x86_64     → android/amd64
@@ -44,16 +50,19 @@ install-gomobile:
 
 android: setup
 	@echo "Building Android AAR..."
-	@mkdir -p $(dir $(ANDROID_OUTPUT))
+	@mkdir -p $(dir $(abspath $(ANDROID_OUTPUT)))
+	@rm -f $(REPRO_BUILD_DIR)
+	@ln -s $(abspath .) $(REPRO_BUILD_DIR)
 	@$(GO) get golang.org/x/mobile/bind
-	@GOPATH=$(GOPATH) PATH=$(GOPATH)/bin:$(GOROOT)/bin:$$PATH GOFLAGS=-trimpath $(GOMOBILE) bind \
-		-trimpath \
-		-target=$(ANDROID_TARGETS) \
-		-androidapi $(ANDROID_API) \
-		-tags noassets \
-		-ldflags=-checklinkname=0 \
-		-o $(ANDROID_OUTPUT) \
-		./
+	@cd $(REPRO_BUILD_DIR) && \
+		GOPATH=$(GOPATH) PATH=$(GOPATH)/bin:$(GOROOT)/bin:$$PATH GOFLAGS=-trimpath $(GOMOBILE) bind \
+			-trimpath \
+			-target=$(ANDROID_TARGETS) \
+			-androidapi $(ANDROID_API) \
+			-tags noassets \
+			-ldflags=-checklinkname=0 \
+			-o $(abspath $(ANDROID_OUTPUT)) \
+			./
 	@echo "✓ Android AAR built successfully at $(ANDROID_OUTPUT)"
 
 ios: setup
