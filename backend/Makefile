@@ -46,7 +46,8 @@ android: setup
 	@echo "Building Android AAR..."
 	@mkdir -p $(dir $(ANDROID_OUTPUT))
 	@$(GO) get golang.org/x/mobile/bind
-	@GOPATH=$(GOPATH) PATH=$(GOPATH)/bin:$(GOROOT)/bin:$$PATH $(GOMOBILE) bind \
+	@GOPATH=$(GOPATH) PATH=$(GOPATH)/bin:$(GOROOT)/bin:$$PATH GOFLAGS=-trimpath $(GOMOBILE) bind \
+		-trimpath \
 		-target=$(ANDROID_TARGETS) \
 		-androidapi $(ANDROID_API) \
 		-tags noassets \

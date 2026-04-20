@@ -72,11 +72,29 @@ jobs:
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
 
+      - name: Extract versionCode
+        if: matrix.abi == 'arm64-v8a'
+        run: |
+          AAPT2=$ANDROID_HOME/build-tools/36.0.0/aapt2
+          APK=mobile-app/android/app/build/outputs/apk/release/app-release.apk
+          VC=$("$AAPT2" dump badging "$APK" | grep -oE "versionCode='[0-9]+'" | grep -oE "[0-9]+")
+          echo "arm64-v8a versionCode: $VC"
+          echo "$VC" > VERSIONCODE
+
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
           name: apk-${{ matrix.abi }}
           path: mobile-app/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 1
+
+      - name: Upload versionCode
+        if: matrix.abi == 'arm64-v8a'
+        uses: actions/upload-artifact@v4
+        with:
+          name: versioncode
+          path: VERSIONCODE
           if-no-files-found: error
           retention-days: 1
 
@@ -100,16 +118,27 @@ jobs:
         with:
           path: apks
 
-      - name: Rename APKs by ABI
+      - name: Rename APKs by ABI + stage VERSIONCODE
+        id: stage
         run: |
           mv apks/apk-arm64-v8a/app-release.apk apks/syncup-${{ steps.version.outputs.version }}-arm64-v8a.apk
           mv apks/apk-x86_64/app-release.apk    apks/syncup-${{ steps.version.outputs.version }}-x86_64.apk
+          mv apks/versioncode/VERSIONCODE       apks/VERSIONCODE
+          VC=$(cat apks/VERSIONCODE)
+          echo "arm64-v8a versionCode: $VC"
+          echo "versioncode=$VC" >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: v${{ steps.version.outputs.version }}
           name: v${{ steps.version.outputs.version }}
+          body: |
+            arm64-v8a versionCode (for F-Droid reproducible-build metadata):
+            `${{ steps.stage.outputs.versioncode }}`
+          append_body: true
           draft: true
           generate_release_notes: true
-          files: apks/syncup-*.apk
+          files: |
+            apks/syncup-*.apk
+            apks/VERSIONCODE
