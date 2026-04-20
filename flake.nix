@@ -84,6 +84,9 @@
           ];
 
           shellHook = ''
+            export JAVA_HOME=${pkgs.jdk17.home}
+            export PATH="$JAVA_HOME/bin:$PATH"
+
             export GOPATH="$HOME/gopath"
             export PATH="$GOPATH/bin:$PATH"
 

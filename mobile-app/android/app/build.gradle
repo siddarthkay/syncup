@@ -71,7 +71,16 @@ android {
             proguardFiles getDefaultProguardFile("proguard-android.txt"), "proguard-rules.pro"
             def enablePngCrunchInRelease = findProperty('android.enablePngCrunchInReleaseBuilds') ?: 'true'
             crunchPngs enablePngCrunchInRelease.toBoolean()
+            // Reproducibility: AGP 8.3+ bakes git commit info into the APK by
+            // default. Strip it so the APK doesn't depend on the git clone state.
+            vcsInfo.include = false
         }
+    }
+
+    // (documented cause of F-Droid classes*.dex diffs, see
+    // https://f-droid.org/docs/Reproducible_Builds/).
+    compileOptions {
+        // sourceCompatibility/targetCompatibility come from RN plugin defaults.
     }
     packagingOptions {
         jniLibs {
@@ -85,6 +94,19 @@ android {
     dependenciesInfo {
         includeInApk = false
         includeInBundle = false
+    }
+}
+
+// explicitly pinning '-parameters' eliminates the classes*.dex annotation diff.
+tasks.withType(JavaCompile).configureEach {
+    options.compilerArgs.add('-parameters')
+}
+
+// We don't ship startup profiles and dont need it, they also produce
+// non-deterministic assets/dexopt/baseline.prof keyed on dex class offsets 
+tasks.whenTaskAdded { task ->
+    if (task.name.contains('ArtProfile')) {
+        task.enabled = false
     }
 }
 
