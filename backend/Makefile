@@ -4,6 +4,9 @@ GOROOT ?= $(shell $(GO) env GOROOT)
 GOMOBILE ?= $(GOPATH)/bin/gomobile
 GOBIND ?= $(GOPATH)/bin/gobind
 
+# This var helps pin go, else it can update at will to 1.25.9
+export GOTOOLCHAIN = go1.25.0
+
 ANDROID_OUTPUT = ../mobile-app/android/app/libs/gobridge.aar
 IOS_OUTPUT = ../mobile-app/ios/Frameworks/Gobridge.xcframework
 
@@ -41,10 +44,17 @@ check-go:
 	@echo "GOROOT: $(GOROOT)"
 	@echo "GOPATH: $(GOPATH)"
 
+# Pin gomobile version explicitly to avoid suprises.
+# Format: v0.0.0-<UTC yyyymmddhhmmss>-<12-char commit prefix>
+# Commit:  https://github.com/golang/mobile/commit/2cfb76559b7b
+# To bump: `go list -m -versions golang.org/x/mobile` (latest pseudo-version
+# is the last one printed; or pick a specific commit from the GitHub mirror).
+GOMOBILE_VERSION = v0.0.0-20260410095206-2cfb76559b7b
+
 install-gomobile:
-	@echo "Installing gomobile and gobind..."
-	@$(GO) install golang.org/x/mobile/cmd/gomobile@latest
-	@$(GO) install golang.org/x/mobile/cmd/gobind@latest
+	@echo "Installing gomobile and gobind ($(GOMOBILE_VERSION))..."
+	@$(GO) install golang.org/x/mobile/cmd/gomobile@$(GOMOBILE_VERSION)
+	@$(GO) install golang.org/x/mobile/cmd/gobind@$(GOMOBILE_VERSION)
 	@echo "Gomobile installed at: $(GOMOBILE)"
 	@echo "Gobind installed at: $(GOBIND)"
 
@@ -60,7 +70,7 @@ android: setup
 			-target=$(ANDROID_TARGETS) \
 			-androidapi $(ANDROID_API) \
 			-tags noassets \
-			-ldflags=-checklinkname=0 \
+			-ldflags="-buildid= -checklinkname=0" \
 			-o $(abspath $(ANDROID_OUTPUT)) \
 			./
 	@echo "✓ Android AAR built successfully at $(ANDROID_OUTPUT)"

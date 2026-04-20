@@ -18,13 +18,17 @@ allprojects {
   }
 }
 
-// Reproducibility: clang embeds absolute header paths from prefab include dirs into .so files via __FILE__.
-// Normalize $HOME across build environments so F-Droid's home and CI's home produce identical bytes.
+
 subprojects {
   afterEvaluate { project ->
     if (project.hasProperty('android') && project.android?.defaultConfig?.externalNativeBuild?.cmake != null) {
-      project.android.defaultConfig.externalNativeBuild.cmake.cppFlags += [
+      def cmakeDsl = project.android.defaultConfig.externalNativeBuild.cmake
+      cmakeDsl.cppFlags += [
         "-ffile-prefix-map=${System.getProperty('user.home')}=.",
+      ]
+      // for Fdroid reproducibility 
+      cmakeDsl.arguments += [
+        "-DCMAKE_SHARED_LINKER_FLAGS=-Wl,--build-id=none",
       ]
     }
   }

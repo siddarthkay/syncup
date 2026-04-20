@@ -2,6 +2,13 @@ apply plugin: "com.android.application"
 apply plugin: "org.jetbrains.kotlin.android"
 apply plugin: "com.facebook.react"
 
+// Reproducibility: React Native's gradle plugin injects the build host's LAN IP
+androidComponents {
+    finalizeDsl { ext ->
+        ext.defaultConfig.resValue("string", "react_native_dev_server_ip", "localhost")
+    }
+}
+
 def projectRoot = rootDir.getAbsoluteFile().getParentFile().getAbsolutePath()
 
 react {
