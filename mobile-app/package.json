@@ -68,7 +68,10 @@
         "android": [
           "expo-camera"
         ]
-      }
+      },
+      "buildFromSource": [
+        ".*"
+      ]
     }
   },
   "private": true,

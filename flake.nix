@@ -35,8 +35,24 @@
           config.allowUnfree = true;
           overlays = [ gradleOverlay ];
         };
+
+        patchNodeModules =
+          let
+            pythonEnv = pkgs.python3.withPackages (_:
+              pkgs.fdroidserver.propagatedBuildInputs);
+            sitePkgs = "${pkgs.fdroidserver}/lib/python${pkgs.python3.pythonVersion}/site-packages";
+          in
+          pkgs.writeShellApplication {
+            name = "patch-node-modules";
+            text = ''
+              export PYTHONPATH="${sitePkgs}:''${PYTHONPATH:-}"
+              exec ${pythonEnv}/bin/python3 ${./nix/patch-node-modules.py} "$@"
+            '';
+          };
       in
       {
+        packages.patch-node-modules = patchNodeModules;
+
         devShells.default = pkgs.mkShellNoCC {
           buildInputs = with pkgs; [
             go_1_25
@@ -49,6 +65,9 @@
             # Java (Android builds)
             jdk17
             gradle
+
+            # F-Droid source-tree prep (called from the F-Droid build).
+            patchNodeModules
 
             # Utilities
             git

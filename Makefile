@@ -5,7 +5,7 @@
 #   make sim-ios              # runs inside nix (default)
 #   make sim-ios SYSTEM=1     # uses system-installed tools
 
-_ALL_TARGETS := setup ios android release-android sim-ios sim-android dev-ios dev-android test test-go test-android test-ios test-js clean clean-all help
+_ALL_TARGETS := setup ios android release-android patch-node-modules sim-ios sim-android dev-ios dev-android test test-go test-android test-ios test-js clean clean-all help
 
 .DEFAULT_GOAL := help
 
@@ -38,6 +38,9 @@ ios:
 android:
 	@$(MAKE) -C backend android $(if $(ANDROID_TARGETS),ANDROID_TARGETS=$(ANDROID_TARGETS))
 	@$(MAKE) -C mobile-app build-android
+
+patch-node-modules:
+	@patch-node-modules
 
 # Usage: make release-android ANDROID_TARGETS=android/arm64 ANDROID_ABI=arm64-v8a
 release-android:
