@@ -44,10 +44,16 @@ jobs:
       - name: Set up Android SDK
         uses: android-actions/setup-android@v3
         with:
-          packages: 'tools platform-tools platforms;android-36 build-tools;36.0.0 ndk;26.1.10909125'
+          packages: 'tools platform-tools platforms;android-36 build-tools;36.0.0 ndk;26.3.11579264'
 
       - name: Decode release keystore
         run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > /tmp/release.keystore
+
+      # Mirror the F-Droid prebuild so the APK is reproducible for them
+      - name: Install deps + patch node_modules
+        run: |
+          make setup
+          make patch-node-modules
 
       - name: Build release APK (${{ matrix.abi }})
         run: |
