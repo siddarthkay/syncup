@@ -96,11 +96,10 @@
             corepack enable --install-directory "$COREPACK_HOME/bin" 2>/dev/null || true
             export PATH="$COREPACK_HOME/bin:$PATH"
 
-            # macOS system tools must come first on PATH. Nix pulls in GNU
-            # coreutils as a transitive dep, and its cp/realpath/etc. break
-            # Xcode script phases that expect BSD variants (same class of bug
-            # as facebook/react-native#42112).
-            export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+            ${pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+              # macOS only: https://github.com/facebook/react-native/issues/42112
+              export PATH="/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
+            ''}
 
             # Expose Xcode toolchain so gomobile / xcodebuild can find SDKs.
             if [ -d /Applications/Xcode.app ]; then
