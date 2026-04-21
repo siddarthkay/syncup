@@ -1,0 +1,5 @@
+v1.1.7 reproducibility fixes for F-Droid builds.
+Pin NDK, Go toolchain and gomobile version.
+Normalize build paths and strip ELF build-id so APKs bit-reproduce across runners.
+Force -parameters on javac to stabilize classes.dex annotations.
+Drop the generated baseline.prof and VCS info from the release APK.

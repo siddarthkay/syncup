@@ -1,0 +1,13 @@
+An open-source Syncthing client for iPhone and Android, powered by the Syncthing daemon via gomobile.
+
+Syncthing's official Android client was archived in December 2024. No single client ran on both phones from one codebase, so this one was built. The daemon runs in-process via gomobile, with a React Native UI scaffolded from react-native-go.
+
+Differences from other clients:
+
+Daemon runs in-process on Android. The Go daemon lives inside the app via gomobile. There is no subprocess to manage, no IPC between a background service and the UI, and no service-restart handling.
+
+Auto-accept folders from trusted peers. When you add a peer, you can toggle auto-accept so any folder they share is added to your device automatically without a prompt. Other pending offers show up as accept/ignore cards in the Folders tab.
+
+QR pairing works both ways. Display your device's QR for a peer to scan, or scan theirs. The 56-character device ID never needs to be typed by hand.
+
+UI updates in near real time. Long-polling /rest/events means config changes, folder state, and incoming offers reach the UI in about a second, instead of on a polling interval.
