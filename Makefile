@@ -51,7 +51,17 @@ release-android:
 
 sim-ios: ios
 	@if ! xcrun simctl list devices booted | grep -q Booted; then \
-		echo "==> No simulator booted - opening Simulator.app..."; \
+		echo "==> No simulator booted - booting newest available iPhone..."; \
+		udid=$$(xcrun simctl list devices available 2>/dev/null \
+			| awk '/-- iOS/{v=$$3} /iPhone.*\(Shutdown\)/{print v, $$0}' \
+			| sort -V | tail -1 \
+			| sed -E 's/.*\(([-0-9A-F]+)\).*/\1/'); \
+		if [ -z "$$udid" ]; then \
+			echo "==> No iPhone simulators available. Install via Xcode > Settings > Platforms."; \
+			exit 1; \
+		fi; \
+		echo "    booting $$udid"; \
+		xcrun simctl boot "$$udid"; \
 		open -a Simulator; \
 		n=0; \
 		while ! xcrun simctl list devices booted | grep -q Booted; do \
