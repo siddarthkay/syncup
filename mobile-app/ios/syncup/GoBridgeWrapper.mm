@@ -209,10 +209,6 @@ static Class GobridgeMobileAPIClass;
 + (BOOL)openBatteryOptimizationSettings { return NO; }
 + (BOOL)openFolderInFileManager:(NSString *)path { return NO; }
 
-// MANAGE_EXTERNAL_STORAGE is Android-only; Documents/ via UIFileSharingEnabled has no runtime prompt.
-+ (BOOL)hasAllFilesAccess { return YES; }
-+ (BOOL)requestAllFilesAccess { return YES; }
-
 + (NSString *)getFoldersRoot {
   @try {
     id api = [self api];

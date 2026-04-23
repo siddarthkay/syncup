@@ -107,7 +107,7 @@ class SyncthingService : Service() {
 
             // must land before startServer so Load's migration step sees it.
             val stashOk = mobileAPI.setFoldersRoot(foldersRoot)
-            Log.i(TAG, "pre-start setFoldersRoot=$foldersRoot ok=$stashOk hasAllFiles=${Paths.hasAllFilesAccess()}")
+            Log.i(TAG, "pre-start setFoldersRoot=$foldersRoot ok=$stashOk")
 
             val port = mobileAPI.startServer(dataDir)
             Log.i(TAG, "syncthing started on port=$port dataDir=$dataDir")

@@ -28,8 +28,6 @@ export interface Spec extends TurboModule {
   readonly openFolderInFileManager: (path: string) => boolean;
   readonly getFoldersRoot: () => string;
   readonly setFoldersRoot: (path: string) => boolean;
-  readonly hasAllFilesAccess: () => boolean;
-  readonly requestAllFilesAccess: () => boolean;
   readonly maybeNotifyFolderErrors: (
     folderId: string,
     count: number,

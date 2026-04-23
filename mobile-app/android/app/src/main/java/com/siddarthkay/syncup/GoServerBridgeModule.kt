@@ -244,40 +244,6 @@ class GoServerBridgeModule(reactContext: ReactApplicationContext) :
         }
     }
 
-    override fun hasAllFilesAccess(): Boolean {
-        return Paths.hasAllFilesAccess()
-    }
-
-    override fun requestAllFilesAccess(): Boolean {
-        // pre-R: WRITE is install-time, nothing to ask for.
-        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R) {
-            return true
-        }
-        return try {
-            val intent = android.content.Intent(
-                android.provider.Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION,
-                android.net.Uri.parse("package:${ctx.packageName}"),
-            )
-            intent.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-            ctx.startActivity(intent)
-            true
-        } catch (e: Exception) {
-            android.util.Log.e(NAME, "requestAllFilesAccess failed", e)
-            // some OEMs don't ship the package-specific deeplink.
-            try {
-                val fallback = android.content.Intent(
-                    android.provider.Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION,
-                )
-                fallback.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                ctx.startActivity(fallback)
-                true
-            } catch (e2: Exception) {
-                android.util.Log.e(NAME, "fallback ACTION_MANAGE_ALL_FILES failed", e2)
-                false
-            }
-        }
-    }
-
     override fun maybeNotifyFolderErrors(
         folderId: String,
         count: Double,

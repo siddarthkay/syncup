@@ -27,8 +27,6 @@ export interface GoServerBridgeInterface {
   openFolderInFileManager(path: string): boolean;
   getFoldersRoot(): string;
   setFoldersRoot(path: string): boolean;
-  hasAllFilesAccess(): boolean;
-  requestAllFilesAccess(): boolean;
   maybeNotifyFolderErrors(
     folderId: string,
     count: number,
@@ -146,14 +144,6 @@ class GoServerBridgeJSI implements GoServerBridgeInterface {
 
   setFoldersRoot(path: string): boolean {
     return NativeGoServerBridge.setFoldersRoot(path);
-  }
-
-  hasAllFilesAccess(): boolean {
-    return NativeGoServerBridge.hasAllFilesAccess();
-  }
-
-  requestAllFilesAccess(): boolean {
-    return NativeGoServerBridge.requestAllFilesAccess();
   }
 
   maybeNotifyFolderErrors(

@@ -104,33 +104,11 @@ export function SettingsScreen() {
     }
   };
 
-  const requestAllFiles = () => {
-    try {
-      const ok = GoBridge.requestAllFilesAccess();
-      if (!ok) {
-        Alert.alert(
-          'Could not open settings',
-          'Open Settings -> Apps -> SyncUp -> Permissions -> All files access manually.',
-        );
-      }
-    } catch (e) {
-      Alert.alert('Error', e instanceof Error ? e.message : String(e));
-    }
-  };
-
   // re-read on tab focus so returning from system settings shows the new mode
   useEffect(() => {
     refreshStorageState();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
-
-  const storageMode: 'public' | 'scoped' = info?.hasAllFilesAccess ? 'public' : 'scoped';
-  const needsRestartForStorage =
-    isAndroid &&
-    info != null &&
-    storageMode === 'public' &&
-    !!info.foldersRoot &&
-    !info.foldersRoot.startsWith('/storage/emulated/0/syncthing');
 
   const confirmRestart = () => {
     Alert.alert(
@@ -295,43 +273,6 @@ export function SettingsScreen() {
 
       {isAndroid && (
         <Card>
-          <CardTitle>Storage location</CardTitle>
-          {storageMode === 'public' ? (
-            <>
-              <Text style={styles.aboutText}>
-                <Text style={{ color: colors.success, fontWeight: '600' }}>Public storage.</Text>{' '}
-                Synced folders live in /storage/emulated/0/syncthing/folders/. Visible to every file manager and the system Files app, and survive uninstall.
-              </Text>
-              {needsRestartForStorage && (
-                <View style={styles.warningBlock}>
-                  <Text style={styles.warningText}>
-                    The daemon is still using the previous folders root. Restart it to pick up the new public path. Existing folders keep their stored paths.
-                  </Text>
-                  <TouchableOpacity style={styles.button} onPress={confirmRestart}>
-                    <Text style={styles.buttonText}>Restart daemon</Text>
-                  </TouchableOpacity>
-                </View>
-              )}
-            </>
-          ) : (
-            <>
-              <Text style={styles.aboutText}>
-                <Text style={{ color: colors.warning, fontWeight: '600' }}>App-scoped storage.</Text>{' '}
-                Synced folders live in this app's private external dir. They're hidden from most file managers on Android 11+, and they get wiped if you uninstall the app.
-              </Text>
-              <Text style={[styles.aboutText, { marginTop: 8, color: colors.textDim }]}>
-                Grant "All files access" to switch to public storage at /storage/emulated/0/syncthing/folders/. Required because Android sandboxes app data on modern versions.
-              </Text>
-              <TouchableOpacity style={styles.button} onPress={requestAllFiles}>
-                <Text style={styles.buttonText}>Grant All files access</Text>
-              </TouchableOpacity>
-            </>
-          )}
-        </Card>
-      )}
-
-      {isAndroid && (
-        <Card>
           <CardTitle>Power</CardTitle>
           <Text style={styles.aboutText}>
             Android aggressively kills foreground services on some OEMs. Whitelisting this app from battery optimization keeps the daemon alive while the device sleeps.
@@ -474,15 +415,6 @@ const styles = StyleSheet.create({
   },
   switchLabel: { color: colors.text, fontSize: 14, fontWeight: '500' },
   switchHint: { color: colors.textDim, fontSize: 11, marginTop: 4, lineHeight: 15 },
-  warningBlock: {
-    marginTop: 12,
-    padding: 12,
-    borderRadius: 10,
-    borderWidth: 1,
-    borderColor: colors.warning,
-    backgroundColor: '#2b1d00',
-  },
-  warningText: { color: colors.text, fontSize: 12, lineHeight: 17 },
   linkRow: {
     flexDirection: 'row',
     alignItems: 'center',

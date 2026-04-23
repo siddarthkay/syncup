@@ -35,8 +35,6 @@ public:
     bool openFolderInFileManager(facebook::jsi::Runtime &rt, facebook::jsi::String path);
     facebook::jsi::String getFoldersRoot(facebook::jsi::Runtime &rt);
     bool setFoldersRoot(facebook::jsi::Runtime &rt, facebook::jsi::String path);
-    bool hasAllFilesAccess(facebook::jsi::Runtime &rt);
-    bool requestAllFilesAccess(facebook::jsi::Runtime &rt);
     bool maybeNotifyFolderErrors(facebook::jsi::Runtime &rt,
                                  facebook::jsi::String folderId,
                                  double count,

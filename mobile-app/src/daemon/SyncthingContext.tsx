@@ -18,8 +18,6 @@ export interface DaemonInfo {
   dataDir: string;
   /** Where new folders get created and the picker is rooted. May change at runtime. */
   foldersRoot: string;
-  /** Android MANAGE_EXTERNAL_STORAGE; always false on iOS. */
-  hasAllFilesAccess: boolean;
 }
 
 interface SyncthingContextValue {
@@ -52,7 +50,6 @@ export function SyncthingProvider({ children }: { children: React.ReactNode }) {
         guiAddress: GoBridge.getGuiAddress(),
         dataDir: GoBridge.getDataDir(),
         foldersRoot: GoBridge.getFoldersRoot(),
-        hasAllFilesAccess: GoBridge.hasAllFilesAccess(),
       });
       setError(null);
     } catch (e) {
@@ -68,7 +65,6 @@ export function SyncthingProvider({ children }: { children: React.ReactNode }) {
         return {
           ...prev,
           foldersRoot: GoBridge.getFoldersRoot(),
-          hasAllFilesAccess: GoBridge.hasAllFilesAccess(),
         };
       } catch {
         return prev;

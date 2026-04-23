@@ -24,8 +24,6 @@
 + (BOOL)openFolderInFileManager:(NSString *)path;
 + (NSString *)getFoldersRoot;
 + (BOOL)setFoldersRoot:(NSString *)path;
-+ (BOOL)hasAllFilesAccess;
-+ (BOOL)requestAllFilesAccess;
 
 /// Deduped folder error notify. Posts only when count > last-notified; count==0 clears the entry.
 /// Compare-and-store is @synchronized, both JS and BG threads land here.

@@ -6,6 +6,7 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.provider.DocumentsContract
 import android.provider.OpenableColumns
 import android.util.Log
 import android.widget.Toast
@@ -120,19 +121,44 @@ class ShareReceiveActivity : Activity() {
         return try {
             val name = resolveDisplayName(uri) ?: defaultName(uri)
             val safeName = sanitizeFilename(name)
-            val destFile = uniquePath(File(destDir), safeName)
-            destFile.parentFile?.mkdirs()
-            contentResolver.openInputStream(uri)?.use { input ->
-                FileOutputStream(destFile).use { output ->
-                    input.copyTo(output)
-                }
-            } ?: return CopyResult(false, "openInputStream returned null")
-            Log.i(TAG, "copied ${destFile.absolutePath}")
-            CopyResult(true)
+            if (destDir.startsWith("content://")) {
+                copyToSaf(uri, Uri.parse(destDir), safeName)
+            } else {
+                copyToPosix(uri, destDir, safeName)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "copy failed for $uri", e)
             CopyResult(false, e.message ?: e.javaClass.simpleName)
         }
+    }
+
+    private fun copyToPosix(srcUri: Uri, destDir: String, name: String): CopyResult {
+        val destFile = uniquePath(File(destDir), name)
+        destFile.parentFile?.mkdirs()
+        contentResolver.openInputStream(srcUri)?.use { input ->
+            FileOutputStream(destFile).use { output ->
+                input.copyTo(output)
+            }
+        } ?: return CopyResult(false, "openInputStream returned null")
+        Log.i(TAG, "copied ${destFile.absolutePath}")
+        return CopyResult(true)
+    }
+
+    // DocumentsContract.createDocument on the primary external-storage provider
+    // auto-appends " (1)", " (2)" etc on name collision, so we skip manual uniqueness.
+    private fun copyToSaf(srcUri: Uri, treeUri: Uri, name: String): CopyResult {
+        val parentDocId = DocumentsContract.getTreeDocumentId(treeUri)
+        val parentUri = DocumentsContract.buildDocumentUriUsingTree(treeUri, parentDocId)
+        val mimeType = contentResolver.getType(srcUri) ?: "application/octet-stream"
+        val newUri = DocumentsContract.createDocument(contentResolver, parentUri, mimeType, name)
+            ?: return CopyResult(false, "createDocument returned null")
+        contentResolver.openInputStream(srcUri)?.use { input ->
+            contentResolver.openOutputStream(newUri)?.use { output ->
+                input.copyTo(output)
+            } ?: return CopyResult(false, "openOutputStream returned null")
+        } ?: return CopyResult(false, "openInputStream returned null")
+        Log.i(TAG, "copied SAF $newUri")
+        return CopyResult(true)
     }
 
     private fun resolveDisplayName(uri: Uri): String? {

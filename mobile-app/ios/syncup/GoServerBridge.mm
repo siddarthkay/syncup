@@ -137,14 +137,6 @@ bool GoServerBridgeImpl::setFoldersRoot(facebook::jsi::Runtime &rt, facebook::js
     return [GoBridgeWrapper setFoldersRoot:p];
 }
 
-bool GoServerBridgeImpl::hasAllFilesAccess(facebook::jsi::Runtime &rt) {
-    return [GoBridgeWrapper hasAllFilesAccess];
-}
-
-bool GoServerBridgeImpl::requestAllFilesAccess(facebook::jsi::Runtime &rt) {
-    return [GoBridgeWrapper requestAllFilesAccess];
-}
-
 bool GoServerBridgeImpl::maybeNotifyFolderErrors(facebook::jsi::Runtime &rt,
                                                  facebook::jsi::String folderId,
                                                  double count,

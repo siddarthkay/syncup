@@ -143,6 +143,19 @@ func (c *Client) Load(configDir, dataDir string) error {
 		}
 		conf.Folders = kept
 
+		// Heal folders whose Path is a SAF tree URI but whose FilesystemType
+		// was written as "basic" (e.g. from an older build that predated SAF
+		// support, or an auto-accepted share that inherited the default).
+		for i := range conf.Folders {
+			f := &conf.Folders[i]
+			if strings.HasPrefix(f.Path, "content://") && f.FilesystemType != config.FilesystemType(FilesystemTypeSAF) {
+				slog.Warn("promoting content:// folder to SAF filesystem",
+					"id", f.ID, "from", string(f.FilesystemType))
+				f.FilesystemType = config.FilesystemType(FilesystemTypeSAF)
+				conf.SetFolder(*f)
+			}
+		}
+
 		// iOS rotates the app container UUID on reinstall, so stored absolute
 		// paths can point at a dead container. Remap under current dataDir,
 		// keeping everything after "/folders/".
