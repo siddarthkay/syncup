@@ -118,17 +118,21 @@ class SyncthingService : Service() {
         }
     }
 
+    // Run on a background thread: syncthing's supervisor drain can take several
+    // seconds, and this is called from onDestroy (main thread). Blocking the
+    // main thread past ~5s triggers an ANR and kills the process.
     private fun stopDaemon() {
         if (!started) return
-        try {
-            mobileAPI.stopServer()
-            Log.i(TAG, "syncthing stopped")
-        } catch (e: Exception) {
-            Log.e(TAG, "stopDaemon failed", e)
-        } finally {
-            started = false
-            lastSuspended = null
-        }
+        started = false
+        lastSuspended = null
+        Thread {
+            try {
+                mobileAPI.stopServer()
+                Log.i(TAG, "syncthing stopped")
+            } catch (e: Exception) {
+                Log.e(TAG, "stopDaemon failed", e)
+            }
+        }.start()
     }
 
     private fun acquireMulticastLock() {

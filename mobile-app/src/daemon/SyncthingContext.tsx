@@ -25,6 +25,10 @@ interface SyncthingContextValue {
   client: SyncthingClient | null;
   error: string | null;
   restart: () => void;
+  /** Halt the daemon. Leaves it stopped until restart() or start(). */
+  stop: () => void;
+  /** Start the daemon if it's currently stopped. No-op if already running. */
+  start: () => void;
   /** Re-read storage state after a permission grant/revoke. */
   refreshStorageState: () => void;
 }
@@ -83,6 +87,17 @@ export function SyncthingProvider({ children }: { children: React.ReactNode }) {
     return new SyncthingClient({ apiKey: info.apiKey, guiAddress: info.guiAddress });
   }, [info]);
 
+  const stop = useCallback(() => {
+    try {
+      GoBridge.stopServer();
+    } catch {
+      // ignore
+    }
+    setInfo(null);
+    setError(null);
+    startedRef.current = false;
+  }, []);
+
   const restart = useCallback(() => {
     try {
       GoBridge.stopServer();
@@ -95,8 +110,8 @@ export function SyncthingProvider({ children }: { children: React.ReactNode }) {
   }, [start]);
 
   const value = useMemo<SyncthingContextValue>(
-    () => ({ info, client, error, restart, refreshStorageState }),
-    [info, client, error, restart, refreshStorageState],
+    () => ({ info, client, error, restart, stop, start, refreshStorageState }),
+    [info, client, error, restart, stop, start, refreshStorageState],
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

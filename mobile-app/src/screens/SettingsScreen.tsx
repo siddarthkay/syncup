@@ -32,7 +32,7 @@ import {
 } from '../components/ui';
 
 export function SettingsScreen() {
-  const { info, client, error: daemonError, restart, refreshStorageState } = useSyncthing();
+  const { info, client, error: daemonError, restart, stop, refreshStorageState } = useSyncthing();
   const isAndroid = Platform.OS === 'android';
 
   const fetcher = useCallback(async () => {
@@ -128,6 +128,17 @@ export function SettingsScreen() {
             restart();
           },
         },
+      ],
+    );
+  };
+
+  const confirmStop = () => {
+    Alert.alert(
+      'Stop SyncUp?',
+      undefined,
+      [
+        { text: 'No', style: 'cancel' },
+        { text: 'Yes', style: 'destructive', onPress: stop },
       ],
     );
   };
@@ -315,6 +326,19 @@ export function SettingsScreen() {
       />
 
       <Card>
+        <CardTitle>Stop app</CardTitle>
+        <Text style={styles.aboutText}>
+          Fully stops SyncUp. Sync halts, the background notification goes away, and nothing runs in the background until you open the app again.
+        </Text>
+        <TouchableOpacity
+          style={[styles.button, styles.buttonDanger]}
+          onPress={confirmStop}
+        >
+          <Text style={[styles.buttonText, styles.buttonDangerText]}>Stop app</Text>
+        </TouchableOpacity>
+      </Card>
+
+      <Card>
         <CardTitle>About</CardTitle>
         <Text style={styles.aboutText}>
           React Native syncthing client. The daemon runs in-process via gomobile and exposes its standard REST API on localhost.
@@ -380,6 +404,8 @@ const styles = StyleSheet.create({
     marginTop: 12,
   },
   buttonText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
+  buttonDanger: { borderColor: colors.error },
+  buttonDangerText: { color: colors.error },
   qrBtn: {
     backgroundColor: colors.card,
     borderWidth: 1,
