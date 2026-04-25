@@ -1,0 +1,199 @@
+name: release-ios
+
+on:
+  pull_request:
+    branches: [master, main]
+  push:
+    tags:
+      - 'v*'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Override per-runner via repo variable XCODE_DEVELOPER_DIR if needed.
+  # The default matches GitHub-hosted macOS runners' xcode-select target.
+  XCODE_DEVELOPER_DIR: ${{ vars.XCODE_DEVELOPER_DIR || '/Applications/Xcode.app/Contents/Developer' }}
+
+jobs:
+  # PR builds: signed .pr IPA uploaded to appdrop.sh, install link posted back to the PR.
+  pr-build:
+    name: pr build + appdrop upload
+    if: github.event_name == 'pull_request'
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 60
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          if [ ! -d "$XCODE_DEVELOPER_DIR" ]; then
+            echo "::error::XCODE_DEVELOPER_DIR=$XCODE_DEVELOPER_DIR does not exist on this runner."
+            echo "Set the XCODE_DEVELOPER_DIR repo variable to a valid Xcode Developer dir."
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DEVELOPER_DIR" >> "$GITHUB_ENV"
+          echo "Selected Xcode at: $XCODE_DEVELOPER_DIR"
+          DEVELOPER_DIR=$XCODE_DEVELOPER_DIR xcodebuild -version
+
+      - name: Scrub global Xcode caches
+        run: |
+          # make clean only wipes mobile-app/ios/build & Pods. Stale state in
+          # ~/Library leaks across runs and is the textbook cause of "module X
+          # in precompiled file but not in any loaded module map file" errors
+          # (this build works locally where these dirs are empty).
+          rm -rf "$HOME/Library/Developer/Xcode/DerivedData"
+          rm -rf "$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)"
+          rm -rf "$HOME/Library/Caches/com.apple.dt.Xcode"
+          echo "Scrubbed global Xcode caches."
+
+      - name: Clean stale build state
+        run: make clean
+
+      - name: Write match SSH key
+        env:
+          MATCH_DEPLOY_KEY: ${{ secrets.MATCH_DEPLOY_KEY }}
+        run: |
+          # Per-workspace key so we don't touch the runner's global ~/.ssh state.
+          KEY="$RUNNER_TEMP/match_key"
+          printf '%s\n' "$MATCH_DEPLOY_KEY" > "$KEY"
+          chmod 600 "$KEY"
+          echo "MATCH_SSH_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Build signed .pr IPA
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_P8: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          GIT_SSH_COMMAND: ssh -i ${{ env.MATCH_SSH_KEY }} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new
+          BUILD_NUMBER: ${{ github.run_number }}
+          FASTLANE_HIDE_CHANGELOG: '1'
+          FASTLANE_SKIP_UPDATE_CHECK: '1'
+        run: make ios-pr
+
+      - name: Upload IPA to appdrop.sh
+        id: appdrop
+        env:
+          APPDROP_URL: ${{ secrets.APPDROP_URL }}
+          APPDROP_TOKEN: ${{ secrets.APPDROP_TOKEN }}
+          APPDROP_FILE: mobile-app/ios/build/ipa/syncup-pr.ipa
+          APPDROP_PROJECT: syncup-pr
+          APPDROP_NAME: SyncUp PR #${{ github.event.pull_request.number }}
+          APPDROP_NOTES: PR #${{ github.event.pull_request.number }} @ ${{ github.event.pull_request.head.sha }}
+        run: |
+          OUT=$(make appdrop-upload)
+          echo "$OUT"
+          LINK=$(echo "$OUT" | jq -r '.install_link')
+          echo "install_link=$LINK" >> "$GITHUB_OUTPUT"
+
+      - name: Comment install link on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const link = `${{ steps.appdrop.outputs.install_link }}`;
+            const qr = link.replace('/install/', '/og/install/') + '.png';
+            const marker = '<!-- appdrop-ios-install-link -->';
+            const body = [
+              marker,
+              `### 📱 iOS build ready (\`.pr\` bundle ID)`,
+              ``,
+              `<a href="${link}"><img src="${qr}" width="240" height="240" alt="Install QR"></a>`,
+              ``,
+              `[Install link](${link}). Scan the QR with an iOS device camera, or open the link on the device.`,
+            ].join('\n');
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner, repo: context.repo.repo,
+                body,
+              });
+            }
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: syncup-pr-ipa-${{ github.event.pull_request.number }}
+          path: mobile-app/ios/build/ipa/syncup-pr.ipa
+          if-no-files-found: error
+          retention-days: 14
+
+  # Tagged release: App Store-signed IPA → TestFlight.
+  release-build:
+    name: release build + testflight
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: [self-hosted, macOS]
+    timeout-minutes: 90
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: |
+          if [ ! -d "$XCODE_DEVELOPER_DIR" ]; then
+            echo "::error::XCODE_DEVELOPER_DIR=$XCODE_DEVELOPER_DIR does not exist on this runner."
+            echo "Set the XCODE_DEVELOPER_DIR repo variable to a valid Xcode Developer dir."
+            exit 1
+          fi
+          echo "DEVELOPER_DIR=$XCODE_DEVELOPER_DIR" >> "$GITHUB_ENV"
+          echo "Selected Xcode at: $XCODE_DEVELOPER_DIR"
+          DEVELOPER_DIR=$XCODE_DEVELOPER_DIR xcodebuild -version
+
+      - name: Scrub global Xcode caches
+        run: |
+          rm -rf "$HOME/Library/Developer/Xcode/DerivedData"
+          rm -rf "$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)"
+          rm -rf "$HOME/Library/Caches/com.apple.dt.Xcode"
+          echo "Scrubbed global Xcode caches."
+
+      - name: Clean stale build state
+        run: make clean
+
+      - name: Write match SSH key
+        env:
+          MATCH_DEPLOY_KEY: ${{ secrets.MATCH_DEPLOY_KEY }}
+        run: |
+          KEY="$RUNNER_TEMP/match_key"
+          printf '%s\n' "$MATCH_DEPLOY_KEY" > "$KEY"
+          chmod 600 "$KEY"
+          echo "MATCH_SSH_KEY=$KEY" >> "$GITHUB_ENV"
+
+      - name: Build release IPA and upload to TestFlight
+        env:
+          APP_STORE_CONNECT_KEY_ID: ${{ secrets.APP_STORE_CONNECT_KEY_ID }}
+          APP_STORE_CONNECT_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+          APP_STORE_CONNECT_KEY_P8: ${{ secrets.APP_STORE_CONNECT_KEY_P8_BASE64 }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+          MATCH_GIT_URL: ${{ secrets.MATCH_GIT_URL }}
+          MATCH_PASSWORD: ${{ secrets.MATCH_PASSWORD }}
+          GIT_SSH_COMMAND: ssh -i ${{ env.MATCH_SSH_KEY }} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new
+          BUILD_NUMBER: ${{ github.run_number }}
+          FASTLANE_HIDE_CHANGELOG: '1'
+          FASTLANE_SKIP_UPDATE_CHECK: '1'
+        run: make ios-release
+
+      - name: Upload IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: syncup-ipa-${{ github.ref_name }}
+          path: mobile-app/ios/build/ipa/syncup.ipa
+          if-no-files-found: error
+          retention-days: 14

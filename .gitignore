@@ -29,6 +29,7 @@ yarn-error.*
 # Local env
 .env
 .env*.local
+.env.fastlane
 
 # TypeScript
 *.tsbuildinfo
@@ -40,6 +41,14 @@ yarn-error.*
 /mobile-app/ios/build/
 /mobile-app/ios/.xcode.env.local
 /mobile-app/ios/Frameworks/
+
+# Fastlane
+/fastlane/report.xml
+/fastlane/README.md
+/fastlane/test_output/
+/fastlane/*.ipa
+/fastlane/*.dSYM.zip
+/fastlane/*.app.dSYM.zip
 
 # Android
 /mobile-app/android/build/

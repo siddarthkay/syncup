@@ -2,7 +2,7 @@ name: release-android
 
 on:
   pull_request:
-    types: [closed]
+    types: [opened, synchronize, reopened, closed]
     branches: [master, main]
   push:
     tags:
@@ -13,6 +13,101 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  # Open PRs: build an APK with .pr applicationId suffix, upload to appdrop, comment QR.
+  pr-build:
+    name: pr build + appdrop upload
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action != 'closed'
+    runs-on: [self-hosted, linux]
+    timeout-minutes: 45
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: 'tools platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.1.12297006'
+
+      - name: Decode release keystore
+        run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > /tmp/release.keystore
+
+      - name: Install deps + patch node_modules
+        run: |
+          make setup
+          make patch-node-modules
+
+      - name: Build PR APK (.pr applicationId)
+        run: make pr-android
+        env:
+          RELEASE_KEYSTORE_PATH: /tmp/release.keystore
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.1.12297006
+          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.1.12297006
+          FDROID_VERSION_CODE: ${{ github.run_number }}
+
+      - name: Upload APK to appdrop.sh
+        id: appdrop
+        env:
+          APPDROP_URL: ${{ secrets.APPDROP_URL }}
+          APPDROP_TOKEN: ${{ secrets.APPDROP_TOKEN }}
+          APPDROP_FILE: mobile-app/android/app/build/outputs/apk/release/app-release.apk
+          APPDROP_PROJECT: syncup-pr-android
+          APPDROP_NAME: SyncUp Android PR #${{ github.event.pull_request.number }}
+          APPDROP_NOTES: PR #${{ github.event.pull_request.number }} @ ${{ github.event.pull_request.head.sha }}
+        run: |
+          OUT=$(make appdrop-upload)
+          echo "$OUT"
+          LINK=$(echo "$OUT" | jq -r '.install_link')
+          echo "install_link=$LINK" >> "$GITHUB_OUTPUT"
+
+      - name: Comment install link on PR
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const link = `${{ steps.appdrop.outputs.install_link }}`;
+            const qr = link.replace('/install/', '/og/install/') + '.png';
+            const marker = '<!-- appdrop-android-install-link -->';
+            const body = [
+              marker,
+              `### 🤖 Android build ready (\`.pr\` applicationId)`,
+              ``,
+              `<a href="${link}"><img src="${qr}" width="240" height="240" alt="Install QR"></a>`,
+              ``,
+              `[Install link](${link}). Scan the QR with an Android device, or open the link to download the APK.`,
+            ].join('\n');
+            const { data: comments } = await github.rest.issues.listComments({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+            });
+            const existing = comments.find(c => c.body && c.body.includes(marker));
+            if (existing) {
+              await github.rest.issues.updateComment({
+                owner: context.repo.owner, repo: context.repo.repo,
+                comment_id: existing.id, body,
+              });
+            } else {
+              await github.rest.issues.createComment({
+                issue_number: context.issue.number,
+                owner: context.repo.owner, repo: context.repo.repo,
+                body,
+              });
+            }
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: syncup-pr-apk-${{ github.event.pull_request.number }}
+          path: mobile-app/android/app/build/outputs/apk/release/app-release.apk
+          if-no-files-found: error
+          retention-days: 14
+
   lint-and-typecheck:
     name: lint + typecheck + go vet
     if: >-

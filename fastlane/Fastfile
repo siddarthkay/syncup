@@ -1,0 +1,118 @@
+default_platform(:ios)
+
+# Bundle IDs and on-disk paths used by the upload_release lane. The actual
+# build (archive + export) is done by `make archive-ios` via bare xcodebuild;
+# fastlane only handles match (cert/profile distribution) and TestFlight upload.
+RELEASE_BID = "com.siddarthkay.syncup"
+PR_BID      = "com.siddarthkay.syncup.pr"
+IPA_OUT_DIR = "mobile-app/ios/build/ipa"
+
+def clean_env(name)
+  # Make's `-include .env.fastlane` does NOT strip quotes like shell does, so
+  # `FOO="bar"` ends up as the literal string `"bar"` in ENV. Strip surrounding
+  # single/double quotes and whitespace defensively.
+  raw = ENV[name].to_s
+  raw.strip.sub(/\A["'](.*)["']\z/, '\1')
+end
+
+def asc_api_key
+  # Local dev: point APP_STORE_CONNECT_KEY_P8_PATH at the .p8 file you downloaded.
+  # CI: ship APP_STORE_CONNECT_KEY_P8 as base64 (single line, no newlines).
+  common = {
+    key_id:    clean_env("APP_STORE_CONNECT_KEY_ID"),
+    issuer_id: clean_env("APP_STORE_CONNECT_ISSUER_ID"),
+    in_house:  false,
+  }
+
+  path = clean_env("APP_STORE_CONNECT_KEY_P8_PATH")
+  if !path.empty?
+    app_store_connect_api_key(**common, key_filepath: File.expand_path(path))
+  else
+    app_store_connect_api_key(
+      **common,
+      key_content: clean_env("APP_STORE_CONNECT_KEY_P8"),
+      is_key_content_base64: true,
+    )
+  end
+end
+
+platform :ios do
+  desc "One-shot: create certs + profiles in the match repo for both bundle IDs."
+  desc "Run this exactly once per bundle ID pair. Idempotent: re-runs are no-ops."
+  lane :init_certs do
+    api_key = asc_api_key
+
+    match(
+      type:           "appstore",
+      app_identifier: RELEASE_BID,
+      api_key:        api_key,
+      readonly:       false,
+      force_for_new_devices: true,
+    )
+
+    match(
+      type:           "adhoc",
+      app_identifier: PR_BID,
+      api_key:        api_key,
+      readonly:       false,
+      force_for_new_devices: true,
+    )
+
+    UI.success("✓ Certificates + profiles created and pushed to the match repo.")
+    UI.success("  CI can now run `make ios-pr` and `make ios-release`.")
+  end
+
+  desc "Sync certs + profiles for both bundle IDs. Safe to run on dev machines."
+  lane :sync_certs do
+    api_key = asc_api_key
+
+    match(
+      type:           "appstore",
+      app_identifier: RELEASE_BID,
+      api_key:        api_key,
+      readonly:       !ENV["CI"].nil?,
+    )
+
+    match(
+      type:           "adhoc",
+      app_identifier: PR_BID,
+      api_key:        api_key,
+      readonly:       !ENV["CI"].nil?,
+    )
+  end
+
+  desc "Sync the AdHoc cert + profile for the .pr bundle ID into the keychain."
+  lane :match_pr do
+    # On CI: create an ephemeral unlocked keychain so codesign (run from the
+    # [CP] Embed Pods Frameworks build phase, in a non-interactive session)
+    # can find the identity match just installed.
+    setup_ci if ENV["CI"]
+    match(
+      type:           "adhoc",
+      app_identifier: PR_BID,
+      api_key:        asc_api_key,
+      readonly:       !ENV["CI"].nil?,
+    )
+  end
+
+  desc "Sync the AppStore cert + profile for the prod bundle ID into the keychain."
+  lane :match_release do
+    setup_ci if ENV["CI"]
+    match(
+      type:           "appstore",
+      app_identifier: RELEASE_BID,
+      api_key:        asc_api_key,
+      readonly:       !ENV["CI"].nil?,
+    )
+  end
+
+  desc "Upload an already-built syncup.ipa to TestFlight."
+  lane :upload_release do
+    upload_to_testflight(
+      api_key:                           asc_api_key,
+      ipa:                               File.join(IPA_OUT_DIR, "syncup.ipa"),
+      skip_waiting_for_build_processing: true,
+      skip_submission:                   true,
+    )
+  end
+end

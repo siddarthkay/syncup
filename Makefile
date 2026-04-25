@@ -5,7 +5,14 @@
 #   make sim-ios              # runs inside nix (default)
 #   make sim-ios SYSTEM=1     # uses system-installed tools
 
-_ALL_TARGETS := setup ios android release-android patch-node-modules sim-ios sim-android dev-ios dev-android test test-go test-android test-ios test-js clean clean-all help
+_ALL_TARGETS := setup ios android release-android pr-android ios-certs ios-certs-init ios-pr ios-release appdrop-upload patch-node-modules sim-ios sim-android dev-ios dev-android test test-go test-android test-ios test-js clean clean-all help
+
+# Auto-load fastlane secrets from .env.fastlane (gitignored) so local dev doesn't
+# need to `export` each time. CI provides these via GitHub secrets; .env.fastlane
+# won't exist there, so -include is a no-op. Must live outside the trampoline
+# branch so vars propagate into `nix develop --command`.
+-include .env.fastlane
+export
 
 .DEFAULT_GOAL := help
 
@@ -13,9 +20,12 @@ ifeq ($(SYSTEM)$(IN_NIX_SHELL),)
 # ── Nix trampoline ──────────────────────────────────────────────────
 # Re-exec the requested target inside nix develop. The inner make
 # receives SYSTEM=1 so it falls into the else branch below.
+# --no-print-directory suppresses GNU make 4.x's "Entering directory" /
+# "Leaving directory" lines which would otherwise pollute stdout when
+# callers capture it (e.g. `OUT=$(make appdrop-upload)` parsing JSON).
 .PHONY: $(_ALL_TARGETS)
 $(_ALL_TARGETS):
-	@nix develop --command $(MAKE) $@ SYSTEM=1
+	@nix develop --command $(MAKE) --no-print-directory $@ SYSTEM=1
 else
 # ── Actual targets (inside nix or SYSTEM=1) ─────────────────────────
 
@@ -48,6 +58,121 @@ release-android:
 	@$(MAKE) -C mobile-app release-android \
 		VERSION_NAME=$(shell cat VERSION 2>/dev/null | tr -d '[:space:]') \
 		ANDROID_ABI=$(ANDROID_ABI)
+
+# PR Android build: .pr applicationId suffix, release-signed.
+pr-android:
+	@$(MAKE) -C backend android
+	@$(MAKE) -C mobile-app pr-android \
+		VERSION_NAME=$(shell cat VERSION 2>/dev/null | tr -d '[:space:]')
+
+# One-shot: create + push certs/profiles to the match repo. Run this once,
+# on your Mac, after filling in .env.fastlane. Idempotent.
+ios-certs-init: _check-fastlane-env
+	@fastlane init_certs
+
+# Sync iOS certs + profiles from the match git repo. Read-only on CI, read/write locally.
+ios-certs: _check-fastlane-env
+	@fastlane sync_certs
+
+# Sanity-check the fastlane env before invoking a lane. Points at the .env.fastlane
+# template on miss so a fresh clone knows where to start.
+_check-fastlane-env:
+	@missing=""; \
+	for v in APP_STORE_CONNECT_KEY_ID APP_STORE_CONNECT_ISSUER_ID APPLE_TEAM_ID MATCH_GIT_URL MATCH_PASSWORD; do \
+		if [ -z "$$(eval echo \$$$$v)" ]; then missing="$$missing $$v"; fi; \
+	done; \
+	if [ -z "$$APP_STORE_CONNECT_KEY_P8" ] && [ -z "$$APP_STORE_CONNECT_KEY_P8_PATH" ]; then \
+		missing="$$missing APP_STORE_CONNECT_KEY_P8_PATH (or APP_STORE_CONNECT_KEY_P8)"; \
+	fi; \
+	if [ -n "$$missing" ]; then \
+		echo "==> Missing fastlane env vars:$$missing"; \
+		echo "    Copy .env.fastlane.example to .env.fastlane and fill it in."; \
+		echo "    (it's gitignored, and Makefile auto-loads it on every target)"; \
+		exit 1; \
+	fi
+
+# Build signed .pr IPA for ad-hoc distribution (appdrop.sh).
+# Pipeline: gomobile bind → yarn install → pod install → match (fastlane) →
+#           xcodebuild archive → xcodebuild -exportArchive.
+# Requires: fastlane env vars set (.env.fastlane locally or secrets in CI).
+ios-pr:
+	@$(MAKE) -C backend ios
+	@$(MAKE) -C mobile-app install
+	@$(MAKE) -C mobile-app pod-install
+	@fastlane match_pr
+	@$(MAKE) -C mobile-app archive-ios \
+		BUNDLE_ID=com.siddarthkay.syncup.pr \
+		PROFILE_NAME="match AdHoc com.siddarthkay.syncup.pr" \
+		EXPORT_OPTIONS=ExportOptions-AdHoc.plist \
+		OUTPUT_NAME=syncup-pr.ipa \
+		TEAM_ID="$$APPLE_TEAM_ID" \
+		MARKETING_VERSION=$(shell cat VERSION 2>/dev/null | tr -d '[:space:]') \
+		BUILD_NUMBER=$${BUILD_NUMBER:-$$(date +%Y%m%d%H%M)}
+
+# Upload an IPA or APK to appdrop.sh and print the install link to stdout.
+# Inputs (env or make vars):
+#   APPDROP_FILE     - required, path to the .ipa/.apk
+#   APPDROP_PROJECT  - project bucket on appdrop (e.g. syncup-pr)
+#   APPDROP_NAME     - human-readable build name
+#   APPDROP_NOTES    - release notes shown on the install page
+#   APPDROP_EXPIRY   - days until the link expires (default 14)
+#   APPDROP_VERSION  - npm spec to install; defaults to "latest"
+# Reads APPDROP_URL/APPDROP_TOKEN from env (CI provides them; locally export them).
+APPDROP_VERSION ?= latest
+# Resolve "latest" (or whatever spec) to a concrete version once, so the cache
+# directory is keyed on the actual version. Bumping appdrop-cli on npm
+# auto-invalidates the cache without needing a manual rm.
+APPDROP_RESOLVED := $(shell npm view appdrop-cli@$(APPDROP_VERSION) version 2>/dev/null)
+APPDROP_CACHE    := $(HOME)/.cache/appdrop-cli/$(APPDROP_RESOLVED)
+APPDROP_BIN      := $(APPDROP_CACHE)/node_modules/.bin/appdrop
+APPDROP_EXPIRY   ?= 14
+
+appdrop-upload:
+	@if [ -z "$(APPDROP_FILE)" ]; then echo "==> APPDROP_FILE is required" >&2; exit 1; fi
+	@if [ ! -f "$(APPDROP_FILE)" ]; then echo "==> $(APPDROP_FILE) not found" >&2; exit 1; fi
+	@if [ -z "$(APPDROP_RESOLVED)" ]; then echo "==> npm view appdrop-cli@$(APPDROP_VERSION) failed; check network/auth" >&2; exit 1; fi
+	@if [ ! -x "$(APPDROP_BIN)" ]; then \
+		echo "==> Installing appdrop-cli@$(APPDROP_RESOLVED) into $(APPDROP_CACHE)..." >&2; \
+		mkdir -p "$(APPDROP_CACHE)"; \
+		printf '{"name":"appdrop-cli-runner","private":true,"version":"0.0.0"}\n' > "$(APPDROP_CACHE)/package.json"; \
+		npm install --prefix "$(APPDROP_CACHE)" --no-save --no-audit --no-fund --no-package-lock --loglevel=error appdrop-cli@$(APPDROP_RESOLVED) >&2; \
+		if [ ! -x "$(APPDROP_BIN)" ]; then \
+			echo "==> npm install completed but $(APPDROP_BIN) is missing." >&2; \
+			echo "    Check ~/.npmrc for a prefix= override on this runner." >&2; \
+			echo "    Listing $(APPDROP_CACHE):" >&2; ls -la "$(APPDROP_CACHE)" >&2 || true; \
+			exit 1; \
+		fi; \
+	fi
+	@# Connectivity probe: surface DNS/network failures with detail before the CLI's
+	@# opaque "fetch failed". curl exits 6 on DNS, 7 on connect refused, 28 on timeout.
+	@if [ -z "$$APPDROP_URL" ]; then echo "==> APPDROP_URL is not set" >&2; exit 1; fi
+	@echo "==> Probing $$APPDROP_URL/healthz ..." >&2
+	@if ! curl -sSfL --connect-timeout 5 --max-time 15 -o /dev/null -w "    HTTP %{http_code} in %{time_total}s\n" "$$APPDROP_URL/healthz" >&2; then \
+		echo "==> Connectivity check failed. Verify APPDROP_URL secret is correct and the runner can reach it." >&2; \
+		exit 1; \
+	fi
+	@"$(APPDROP_BIN)" upload "$(APPDROP_FILE)" \
+		$(if $(APPDROP_PROJECT),--project "$(APPDROP_PROJECT)") \
+		$(if $(APPDROP_NAME),--name "$(APPDROP_NAME)") \
+		$(if $(APPDROP_NOTES),--notes "$(APPDROP_NOTES)") \
+		--expiry $(APPDROP_EXPIRY) \
+		--json
+
+# Build App Store IPA and upload to TestFlight.
+ios-release:
+	@$(MAKE) -C backend ios
+	@$(MAKE) -C mobile-app install
+	@$(MAKE) -C mobile-app pod-install
+	@fastlane match_release
+	@$(MAKE) -C mobile-app archive-ios \
+		BUNDLE_ID=com.siddarthkay.syncup \
+		PROFILE_NAME="match AppStore com.siddarthkay.syncup" \
+		EXPORT_OPTIONS=ExportOptions-AppStore.plist \
+		OUTPUT_NAME=syncup.ipa \
+		TEAM_ID="$$APPLE_TEAM_ID" \
+		MARKETING_VERSION=$(shell cat VERSION 2>/dev/null | tr -d '[:space:]') \
+		BUILD_NUMBER=$${BUILD_NUMBER:-$$(date +%Y%m%d%H%M)}
+	@fastlane upload_release
 
 sim-ios: ios
 	@if ! xcrun simctl list devices booted | grep -q Booted; then \
@@ -150,8 +275,13 @@ clean-all:
 help:
 	@echo "Available targets:"
 	@echo "  make setup        - Install Go toolchain and Node dependencies"
-	@echo "  make ios          - Build Go backend + iOS app"
+	@echo "  make ios          - Build Go backend + iOS simulator app"
+	@echo "  make ios-certs-init - One-shot: create + push match certs (run once per new bundle ID)"
+	@echo "  make ios-certs    - Sync iOS certs/profiles via fastlane match"
+	@echo "  make ios-pr       - Build signed .pr IPA for appdrop.sh distribution"
+	@echo "  make ios-release  - Build App Store IPA and upload to TestFlight"
 	@echo "  make android      - Build Go backend + Android app"
+	@echo "  make pr-android   - Build Android APK with .pr applicationId suffix"
 	@echo "  make sim-ios      - Build Go + iOS app, install + launch on booted simulator"
 	@echo "  make sim-android  - Build Go + Android app, install + launch on running emulator"
 	@echo "  make dev-ios      - Build Go backend + start Expo dev client (iOS, hot reload)"

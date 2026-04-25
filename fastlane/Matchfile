@@ -1,0 +1,16 @@
+# Defensive unquoting: Make's -include doesn't strip quotes like shell does, so a
+# line like APPLE_TEAM_ID="ABC123" would otherwise leak the literal quotes in.
+def strip_quotes(s)
+  s.to_s.strip.sub(/\A["'](.*)["']\z/, '\1')
+end
+
+git_url(strip_quotes(ENV["MATCH_GIT_URL"]))
+storage_mode("git")
+
+# Both bundle IDs live in the same match repo; caller picks the type + identifier.
+app_identifier([
+  "com.siddarthkay.syncup",
+  "com.siddarthkay.syncup.pr",
+])
+
+team_id(strip_quotes(ENV["APPLE_TEAM_ID"]))

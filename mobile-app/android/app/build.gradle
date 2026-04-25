@@ -36,6 +36,8 @@ android {
     namespace 'com.siddarthkay.syncup'
     defaultConfig {
         applicationId 'com.siddarthkay.syncup'
+        // PR builds pass -PapplicationIdSuffix=.pr so the APK can sit alongside prod.
+        applicationIdSuffix findProperty('applicationIdSuffix') ?: ''
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         versionCode Integer.valueOf(providers.environmentVariable("FDROID_VERSION_CODE").getOrElse(String.valueOf(System.currentTimeMillis().intdiv(60000))))

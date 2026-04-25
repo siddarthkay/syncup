@@ -1,0 +1,7 @@
+def strip_quotes(s)
+  s.to_s.strip.sub(/\A["'](.*)["']\z/, '\1')
+end
+
+app_id = strip_quotes(ENV["APP_IDENTIFIER"])
+app_identifier(app_id.empty? ? "com.siddarthkay.syncup" : app_id)
+team_id(strip_quotes(ENV["APPLE_TEAM_ID"]))

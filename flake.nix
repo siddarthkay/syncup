@@ -77,6 +77,8 @@
             # iOS (darwin-only)
             cocoapods
             xcbeautify
+            fastlane
+            jq
           ] ++ pkgs.lib.optionals pkgs.stdenv.isLinux [
             # macOS provides clang via Xcode; on Linux we need a C
             # compiler for cgo (gomobile, etc.)
@@ -90,10 +92,12 @@
             export GOPATH="$HOME/gopath"
             export PATH="$GOPATH/bin:$PATH"
 
-            # Corepack writes shims; point it somewhere writable (nix store is read-only)
+            # Corepack writes shims; point it somewhere writable (nix store is read-only).
+            # Limit to yarn so corepack doesn't shadow npm/npx with shims that point at
+            # nodejs-slim (corepack's bundled runtime, which doesn't ship npm).
             export COREPACK_HOME="''${COREPACK_HOME:-$HOME/.cache/corepack}"
             mkdir -p "$COREPACK_HOME/bin"
-            corepack enable --install-directory "$COREPACK_HOME/bin" 2>/dev/null || true
+            corepack enable --install-directory "$COREPACK_HOME/bin" yarn 2>/dev/null || true
             export PATH="$COREPACK_HOME/bin:$PATH"
 
             ${pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
@@ -106,16 +110,19 @@
               export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
             fi
 
-            echo ""
-            echo "SyncUp dev shell"
-            echo "  go:   $(go version | cut -d' ' -f3)"
-            echo "  node: $(node --version)"
-            echo "  java: $(java -version 2>&1 | head -1)"
-            echo ""
-            echo "Notes:"
-            echo "  - Xcode must be installed via the App Store (not available in Nix)"
-            echo "  - Android SDK/NDK: install via Android Studio or sdkmanager"
-            echo "  - Run 'make setup' to install gomobile"
+            # Banner goes to stderr so that anything capturing stdout
+            # (e.g. `OUT=$(make appdrop-upload)` parsing CLI JSON output)
+            # doesn't get polluted by these informational lines.
+            >&2 echo ""
+            >&2 echo "SyncUp dev shell"
+            >&2 echo "  go:   $(go version | cut -d' ' -f3)"
+            >&2 echo "  node: $(node --version)"
+            >&2 echo "  java: $(java -version 2>&1 | head -1)"
+            >&2 echo ""
+            >&2 echo "Notes:"
+            >&2 echo "  - Xcode must be installed via the App Store (not available in Nix)"
+            >&2 echo "  - Android SDK/NDK: install via Android Studio or sdkmanager"
+            >&2 echo "  - Run 'make setup' to install gomobile"
             echo ""
           '';
         };
