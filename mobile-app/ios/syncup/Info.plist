@@ -44,6 +44,16 @@
     </array>
     <key>CFBundleVersion</key>
     <string>1</string>
+    <!--
+      App Store Connect export compliance:
+      Syncthing uses TLS for peer-to-peer transport (an "established protocol"
+      under EAR Cat 5 Part 2 exemptions) and ships no custom or proprietary
+      crypto algorithms. Declaring NO here lets every TestFlight build skip
+      the "Missing Compliance" dialog. See:
+      https://developer.apple.com/documentation/security/declaring-your-app-s-use-of-encryption
+    -->
+    <key>ITSAppUsesNonExemptEncryption</key>
+    <false/>
     <key>LSMinimumSystemVersion</key>
     <string>12.0</string>
     <key>LSRequiresIPhoneOS</key>
