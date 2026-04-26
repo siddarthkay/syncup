@@ -10,7 +10,7 @@ XCODE_DERIVEDDATA = ios/build
 
 install:
 	@echo "Installing Node dependencies..."
-	@$(YARN) install
+	@$(YARN) install --immutable
 	@echo "✓ Node dependencies installed"
 
 pod-install:
