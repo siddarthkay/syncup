@@ -9,7 +9,7 @@ import {
 } from 'react-native';
 import { CameraView, useCameraPermissions } from '../components/CameraCapture';
 import * as Haptics from 'expo-haptics';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useSyncthingClient } from '../daemon/SyncthingContext';
 import type { FolderConfig } from '../api/types';
 import { copyFile } from '../fs/bridgeFs';
@@ -25,6 +25,7 @@ interface Props {
 
 export function QuickCaptureModal({ visible, folders, onClose, onCaptured }: Props) {
   const client = useSyncthingClient();
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [facing, setFacing] = useState<'front' | 'back'>('back');
   const [capturing, setCapturing] = useState(false);
@@ -122,6 +123,23 @@ export function QuickCaptureModal({ visible, folders, onClose, onCaptured }: Pro
     );
   }
 
+  if (folders.length === 0) {
+    return (
+      <Modal visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
+        <SafeAreaView style={styles.container} edges={['top', 'bottom']}>
+          <View style={styles.permissionWrap}>
+            <Text style={styles.permissionText}>
+              Add a folder first, then come back here to capture photos straight into it.
+            </Text>
+            <TouchableOpacity style={styles.permissionBtn} onPress={onClose}>
+              <Text style={styles.permissionBtnText}>Got it</Text>
+            </TouchableOpacity>
+          </View>
+        </SafeAreaView>
+      </Modal>
+    );
+  }
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onClose} statusBarTranslucent>
       <View style={styles.container}>
@@ -131,8 +149,8 @@ export function QuickCaptureModal({ visible, folders, onClose, onCaptured }: Pro
           facing={facing}
         />
 
-        <SafeAreaView style={styles.overlay} edges={['top', 'bottom']} pointerEvents="box-none">
-          <View style={styles.topBar}>
+        <View style={styles.overlay} pointerEvents="box-none">
+          <View style={[styles.topBar, { paddingTop: 12 + insets.top }]}>
             <TouchableOpacity onPress={onClose}>
               <Text style={styles.closeBtn}>✕</Text>
             </TouchableOpacity>
@@ -149,7 +167,7 @@ export function QuickCaptureModal({ visible, folders, onClose, onCaptured }: Pro
             </TouchableOpacity>
           </View>
 
-          <View style={styles.bottomBar}>
+          <View style={[styles.bottomBar, { paddingBottom: 20 + insets.bottom }]}>
             <View style={styles.shutterWrap}>
               <TouchableOpacity
                 style={[styles.shutter, capturing && styles.shutterActive]}
@@ -160,7 +178,7 @@ export function QuickCaptureModal({ visible, folders, onClose, onCaptured }: Pro
               </TouchableOpacity>
             </View>
           </View>
-        </SafeAreaView>
+        </View>
 
         {showFolderPicker && (
           <View style={styles.pickerOverlay}>

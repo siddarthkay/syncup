@@ -8,7 +8,7 @@ import {
   View,
 } from 'react-native';
 import { QRScanner, useCameraPermissions } from '../components/QRScannerView';
-import { SafeAreaView } from 'react-native-safe-area-context';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../components/ui';
 
 const DEVICE_ID_RE = /^[A-Z0-9]{7}(-[A-Z0-9]{7}){7}$/i;
@@ -20,6 +20,7 @@ interface Props {
 }
 
 export function ScanDeviceQRModal({ visible, onCancel, onScanned }: Props) {
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [scannedOnce, setScannedOnce] = useState(false);
   const lockRef = useRef(false);
@@ -61,8 +62,8 @@ export function ScanDeviceQRModal({ visible, onCancel, onScanned }: Props) {
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={onCancel} statusBarTranslucent>
-      <SafeAreaView style={styles.root} edges={['top', 'bottom']}>
-        <View style={styles.header}>
+      <View style={styles.root}>
+        <View style={[styles.header, { paddingTop: 14 + insets.top }]}>
           <TouchableOpacity onPress={onCancel}>
             <Text style={styles.cancel}>Cancel</Text>
           </TouchableOpacity>
@@ -101,12 +102,12 @@ export function ScanDeviceQRModal({ visible, onCancel, onScanned }: Props) {
           <View pointerEvents="none" style={styles.reticle} />
         </View>
 
-        <View style={styles.footer}>
+        <View style={[styles.footer, { paddingBottom: 24 + insets.bottom }]}>
           <Text style={styles.footerText}>
             Aim at the QR code shown by the other device. Detection is automatic.
           </Text>
         </View>
-      </SafeAreaView>
+      </View>
     </Modal>
   );
 }

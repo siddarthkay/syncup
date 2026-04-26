@@ -164,14 +164,12 @@ export function FoldersScreen() {
       </ScrollView>
 
       <Fab onPress={() => setShowAdd(true)} />
-      {data && data.folders.length > 0 && (
-        <TouchableOpacity
-          style={styles.cameraFab}
-          onPress={() => setShowCapture(true)}
-        >
-          <Icon name="camera" size={24} color={colors.text} />
-        </TouchableOpacity>
-      )}
+      <TouchableOpacity
+        style={styles.cameraFab}
+        onPress={() => setShowCapture(true)}
+      >
+        <Icon name="camera" size={24} color={colors.text} />
+      </TouchableOpacity>
 
       {showCapture && (
         <QuickCaptureModal

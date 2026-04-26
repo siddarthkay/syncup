@@ -11,9 +11,11 @@ import {
   TouchableWithoutFeedback,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors } from '../components/ui';
 import { Icon } from '../components/Icon';
 import { listSubdirs, mkdirSubdir, type FsEntry } from '../fs/bridgeFs';
+import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
 
 interface Props {
   visible: boolean;
@@ -24,6 +26,8 @@ interface Props {
 }
 
 export function FolderPicker({ visible, rootPath, initialPath, onCancel, onPick }: Props) {
+  const insets = useSafeAreaInsets();
+  const keyboardHeight = useKeyboardHeight();
   const [path, setPath] = useState<string>(initialPath ?? rootPath);
   const [entries, setEntries] = useState<FsEntry[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -99,7 +103,7 @@ export function FolderPicker({ visible, rootPath, initialPath, onCancel, onPick 
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onCancel} statusBarTranslucent>
-      <View style={styles.backdrop}>
+      <View style={[styles.backdrop, { paddingBottom: keyboardHeight }]}>
         <TouchableWithoutFeedback onPress={onCancel}>
           <View style={StyleSheet.absoluteFill} />
         </TouchableWithoutFeedback>
@@ -149,7 +153,7 @@ export function FolderPicker({ visible, rootPath, initialPath, onCancel, onPick 
             />
           )}
 
-          <View style={styles.footer}>
+          <View style={[styles.footer, { paddingBottom: 12 + (keyboardHeight > 0 ? 0 : insets.bottom) }]}>
             {creating ? (
               <View style={styles.createRow}>
                 <TextInput
