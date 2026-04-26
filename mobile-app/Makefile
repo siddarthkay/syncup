@@ -18,8 +18,13 @@ pod-install:
 	@cd ios && pod install
 	@echo "✓ CocoaPods installed"
 
+# Default MARKETING_VERSION (CFBundleShortVersionString) from repo VERSION file
+# so simulator and archive builds stay in lockstep with the project version.
+# Release lanes pass MARKETING_VERSION explicitly and override this default.
+MARKETING_VERSION ?= $(shell cat ../VERSION 2>/dev/null | tr -d '[:space:]')
+
 build-ios: install pod-install
-	@echo "Building iOS Simulator app..."
+	@echo "Building iOS Simulator app (v$(MARKETING_VERSION))..."
 	@set -o pipefail && xcodebuild -workspace $(XCODE_WORKSPACE) \
 		-scheme $(XCODE_SCHEME) \
 		-sdk iphonesimulator \
@@ -29,6 +34,7 @@ build-ios: install pod-install
 		CODE_SIGNING_ALLOWED=NO \
 		ARCHS=arm64 \
 		ONLY_ACTIVE_ARCH=YES \
+		MARKETING_VERSION=$(MARKETING_VERSION) \
 		2>&1 | if command -v xcbeautify >/dev/null 2>&1; then xcbeautify; else cat; fi
 	@echo "✓ iOS app built at $(XCODE_DERIVEDDATA)/Build/Products/Release-iphonesimulator/syncup.app"
 

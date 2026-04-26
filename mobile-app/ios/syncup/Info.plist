@@ -24,7 +24,7 @@
     <key>CFBundlePackageType</key>
     <string>$(PRODUCT_BUNDLE_PACKAGE_TYPE)</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>$(MARKETING_VERSION)</string>
     <key>CFBundleSignature</key>
     <string>????</string>
     <key>CFBundleURLTypes</key>
@@ -68,7 +68,7 @@
     <key>NSCameraUsageDescription</key>
     <string>Camera is used to scan a peer device's QR code so you can pair without typing the 56-character device ID by hand.</string>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Photo backup copies new photos and videos from your camera roll into a synced folder so they transfer to your other devices.</string>
+    <string>SyncUp accesses your photo library so you can include selected photos and videos in a folder that syncs to your other Syncthing devices.</string>
     <key>NSLocalNetworkUsageDescription</key>
     <string>SyncUp discovers peer devices on your local network to sync files directly without a server.</string>
     <key>RCTNewArchEnabled</key>
