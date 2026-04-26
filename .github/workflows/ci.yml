@@ -30,6 +30,7 @@ jobs:
 
   android:
     name: android build
+    if: github.event_name == 'push'
     runs-on: [self-hosted, linux]
     needs: lint-and-typecheck
     timeout-minutes: 45
@@ -56,6 +57,7 @@ jobs:
 
   ios:
     name: ios build
+    if: github.event_name == 'push'
     runs-on: [self-hosted, macOS]
     needs: lint-and-typecheck
     timeout-minutes: 60
