@@ -32,4 +32,25 @@
                                       label:(NSString *)label
                                      sample:(NSString *)sample;
 
+/// Block-the-JS-thread folder picker. Returns JSON describing the picked
+/// folder, or empty string on cancel. iOS-only; Android renames pickSafFolder
+/// to this and keeps its existing return shape (now JSON).
++ (NSString *)pickExternalFolder;
+
+/// JSON array of currently-persisted external folders.
++ (NSString *)getPersistedExternalFolders;
+
+/// Drop scope + persistence for the folder previously identified by path.
++ (BOOL)revokeExternalFolder:(NSString *)path;
+
+/// Returns true if the bookmark for path resolves cleanly (and isn't stale).
++ (BOOL)validateExternalFolder:(NSString *)path;
+
+/// User-facing name (e.g. "Downloads") for the folder previously identified by path.
++ (NSString *)getExternalFolderDisplayName:(NSString *)path;
+
+/// Present QLPreviewController for one or more local file paths.
+/// pathsJson is a JSON array of absolute paths. Asynchronous; returns immediately.
++ (void)previewFile:(NSString *)pathsJson startIndex:(NSInteger)startIndex;
+
 @end

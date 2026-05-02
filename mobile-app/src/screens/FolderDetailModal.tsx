@@ -20,6 +20,7 @@ import type { DbStatus, DeviceConfig, FolderConfig, FolderError } from '../api/t
 import { colors, formatBytes, Progress } from '../components/ui';
 import { removeDir } from '../fs/bridgeFs';
 import GoBridge from '../GoServerBridgeJSI';
+import { isExternalFolder, pickExternalFolderWithICloudWarning } from '../fs/externalFolder';
 import { FolderIgnoresEditor } from './FolderIgnoresEditor';
 import { FolderAdvancedEditor } from './FolderAdvancedEditor';
 import { FolderVersioningEditor } from './FolderVersioningEditor';
@@ -86,8 +87,14 @@ export function FolderDetailModal({
   const [isSelective, setIsSelective] = useState(false);
   const [selectedPathCount, setSelectedPathCount] = useState(0);
   const [encryptionPasswords, setEncryptionPasswords] = useState<Record<string, string>>({});
-  const [safPermissionValid, setSafPermissionValid] = useState(true);
+  const [externalAccessValid, setExternalAccessValid] = useState(true);
   const [page, setPage] = useState<Page>('main');
+
+  const foldersRoot = info?.foldersRoot ?? '';
+  const isExternal = useMemo(
+    () => (folder ? isExternalFolder(folder, foldersRoot) : false),
+    [folder, foldersRoot],
+  );
 
   useEffect(() => {
     if (!visible) {
@@ -104,11 +111,12 @@ export function FolderDetailModal({
       if (d.encryptionPassword) pwMap[d.deviceID] = d.encryptionPassword;
     }
     setEncryptionPasswords(pwMap);
-    // Check SAF permission on open
-    if (folder.filesystemType === 'saf' && Platform.OS === 'android') {
-      setSafPermissionValid(GoBridge.validateSafPermission(folder.path));
+    // Check external-folder access on open. Covers Android SAF and iOS
+    // security-scoped bookmarks under one branch.
+    if (isExternalFolder(folder, foldersRoot)) {
+      setExternalAccessValid(GoBridge.validateExternalFolder(folder.path));
     } else {
-      setSafPermissionValid(true);
+      setExternalAccessValid(true);
     }
     client.devices().then(setAllDevices).catch(e => setError(String(e)));
     client
@@ -123,7 +131,7 @@ export function FolderDetailModal({
         setIsSelective(false);
         setSelectedPathCount(0);
       });
-  }, [visible, folder, client]);
+  }, [visible, folder, client, foldersRoot]);
 
   const peers = useMemo(
     () => allDevices.filter(d => d.deviceID !== info?.deviceId),
@@ -477,19 +485,26 @@ export function FolderDetailModal({
               <Row
                 label="Path"
                 value={
-                  folder.filesystemType === 'saf'
-                    ? safPermissionValid
-                      ? GoBridge.getSafDisplayName(folder.path)
+                  isExternal
+                    ? externalAccessValid
+                      ? GoBridge.getExternalFolderDisplayName(folder.path) || folder.path
                       : (folder.label || folder.id)
                     : folder.path
                 }
                 mono
                 multiline
               />
-              {folder.filesystemType === 'saf' && (
-                <Row label="Storage" value="Device folder (SAF)" />
+              {isExternal && (
+                <Row
+                  label="Storage"
+                  value={
+                    Platform.OS === 'android'
+                      ? 'Device folder (SAF)'
+                      : 'Device folder (Files)'
+                  }
+                />
               )}
-              {folder.filesystemType === 'saf' && !safPermissionValid && (
+              {isExternal && !externalAccessValid && (
                 <View style={styles.safPermWarn}>
                   <Text style={styles.safPermWarnText}>
                     Storage access was revoked. This folder cannot sync until you re-grant access.
@@ -497,15 +512,17 @@ export function FolderDetailModal({
                   <TouchableOpacity
                     style={styles.safPermBtn}
                     onPress={() => {
-                      const uri = GoBridge.pickSafFolder();
-                      if (uri && uri === folder.path) {
-                        setSafPermissionValid(true);
-                      } else if (uri) {
-                        Alert.alert(
-                          'Different folder selected',
-                          'Please select the same folder to restore access.',
-                        );
-                      }
+                      pickExternalFolderWithICloudWarning(picked => {
+                        if (!picked) return;
+                        if (picked.path === folder.path) {
+                          setExternalAccessValid(true);
+                        } else {
+                          Alert.alert(
+                            'Different folder selected',
+                            'Please select the same folder to restore access.',
+                          );
+                        }
+                      });
                     }}
                   >
                     <Text style={styles.safPermBtnText}>Re-grant access</Text>

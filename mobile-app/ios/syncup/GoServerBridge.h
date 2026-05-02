@@ -40,13 +40,19 @@ public:
                                  double count,
                                  facebook::jsi::String label,
                                  facebook::jsi::String sampleError);
-    // SAF stubs (Android-only; no-ops on iOS)
-    facebook::jsi::String pickSafFolder(facebook::jsi::Runtime &rt);
-    facebook::jsi::String getSafPersistedUris(facebook::jsi::Runtime &rt);
-    bool revokeSafPermission(facebook::jsi::Runtime &rt, facebook::jsi::String uri);
-    facebook::jsi::String getSafDisplayName(facebook::jsi::Runtime &rt, facebook::jsi::String uri);
-    bool validateSafPermission(facebook::jsi::Runtime &rt, facebook::jsi::String uri);
+    // External (user-picked) folder access. Cross-platform; on Android backed
+    // by SAF, on iOS by UIDocumentPicker + security-scoped bookmarks.
+    facebook::jsi::String pickExternalFolder(facebook::jsi::Runtime &rt);
+    facebook::jsi::String getPersistedExternalFolders(facebook::jsi::Runtime &rt);
+    bool revokeExternalFolder(facebook::jsi::Runtime &rt, facebook::jsi::String path);
+    facebook::jsi::String getExternalFolderDisplayName(facebook::jsi::Runtime &rt, facebook::jsi::String path);
+    bool validateExternalFolder(facebook::jsi::Runtime &rt, facebook::jsi::String path);
+    // Android-only: copy a SAF-backed file to the cache dir so the RN preview
+    // modal can load it via file:// URI. iOS path is a no-op (file is already
+    // a real path once scope is held).
     facebook::jsi::String copySafFileToCache(facebook::jsi::Runtime &rt, facebook::jsi::String treeURI, facebook::jsi::String relativePath);
+    // iOS-only: present QLPreviewController on a list of local file paths.
+    void previewFileNative(facebook::jsi::Runtime &rt, facebook::jsi::String pathsJson, double startIndex);
 };
 #endif
 

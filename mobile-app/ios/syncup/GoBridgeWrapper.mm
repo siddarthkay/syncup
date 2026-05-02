@@ -1,5 +1,29 @@
 #import "GoBridgeWrapper.h"
+#import <Foundation/Foundation.h>
 #import <UserNotifications/UserNotifications.h>
+
+// Forward declarations for the Swift classes we use from this file. We avoid
+// importing "syncup-Swift.h" because that umbrella header drags in Expo and
+// UIKit Swift declarations whose ObjC-side prerequisites aren't always
+// visible in this translation unit — leading to spurious build errors about
+// EXExpoAppDelegate / UIApplicationLaunchOptionsKey not being found.
+// Methods marked @objc on the Swift side are dispatched via the runtime, so
+// these declarations are enough to compile + link.
+@interface ScopedFolderStore : NSObject
++ (instancetype _Nonnull)shared;
+- (NSString * _Nonnull)pickFolderBlocking;
+- (NSString * _Nonnull)getPersistedFoldersJSON;
+- (BOOL)validateFolderByPath:(NSString * _Nonnull)path;
+- (NSString * _Nonnull)getDisplayNameByPath:(NSString * _Nonnull)path;
+- (BOOL)revokeFolderByPath:(NSString * _Nonnull)path;
+- (NSDictionary<NSString *, NSString *> * _Nonnull)acquireAll;
+- (void)releaseAll;
+@end
+
+@interface QuickLookPresenter : NSObject
++ (instancetype _Nonnull)shared;
+- (void)presentWithPaths:(NSArray<NSString *> * _Nonnull)paths startIndex:(NSInteger)startIndex;
+@end
 
 static NSString * const kNotifiedErrorCountsKey = @"com.siddarthkay.syncup.notifiedErrorCounts";
 
@@ -8,6 +32,7 @@ static NSString * const kNotifiedErrorCountsKey = @"com.siddarthkay.syncup.notif
 + (void)postFolderErrorsNotificationWithLabel:(NSString *)label
                                          count:(NSInteger)count
                                         sample:(NSString *)sample;
++ (void)acquireExternalRootsAndRegister:(id)api;
 @end
 
 @interface GobridgeMobileAPI : NSObject
@@ -24,6 +49,8 @@ static NSString * const kNotifiedErrorCountsKey = @"com.siddarthkay.syncup.notif
 - (NSString *)mkdirSubdir:(NSString *)parent name:(NSString *)name;
 - (NSString *)removeDir:(NSString *)path;
 - (void)setSuspended:(BOOL)suspended;
+- (void)registerExternalRoot:(NSString *)path;
+- (void)unregisterExternalRoot:(NSString *)path;
 @end
 
 static Class GobridgeMobileAPIClass;
@@ -65,6 +92,10 @@ static Class GobridgeMobileAPIClass;
     id api = [self api];
     if (!api) return @(0);
     NSString *dataDir = [self dataDir];
+    // Acquire scope on every persisted external folder BEFORE the daemon
+    // starts a scan/watch. Idempotent — acquireAll skips already-acquired
+    // entries, so BG re-entries are safe.
+    [self acquireExternalRootsAndRegister:api];
     return @([api startServer:dataDir]);
   } @catch (NSException *exception) {
     return @(0);
@@ -76,9 +107,24 @@ static Class GobridgeMobileAPIClass;
     id api = [self api];
     if (!api) return @(NO);
     [api stopServer];
+    // Release scope after the daemon has fully drained so any in-flight
+    // file ops get to complete first.
+    [ScopedFolderStore.shared releaseAll];
     return @(YES);
   } @catch (NSException *exception) {
     return @(NO);
+  }
+}
+
++ (void)acquireExternalRootsAndRegister:(id)api {
+  NSDictionary<NSString *, NSString *> *roots = [ScopedFolderStore.shared acquireAll];
+  if (![api respondsToSelector:@selector(registerExternalRoot:)]) {
+    return;
+  }
+  for (NSString *path in roots.allKeys) {
+    if (path.length > 0) {
+      [api registerExternalRoot:path];
+    }
   }
 }
 
@@ -305,6 +351,99 @@ static Class GobridgeMobileAPIClass;
   UNNotificationRequest *request =
       [UNNotificationRequest requestWithIdentifier:identifier content:content trigger:nil];
   [[UNUserNotificationCenter currentNotificationCenter] addNotificationRequest:request withCompletionHandler:nil];
+}
+
++ (NSString *)pickExternalFolder {
+  @try {
+    NSString *json = [ScopedFolderStore.shared pickFolderBlocking];
+    if (json.length == 0) return @"";
+
+    // Register the picked path with the Go side so JS-driven file ops
+    // (ListSubdirs / MkdirSubdir / RemoveDir / CopyFile-dst) accept it
+    // immediately without waiting for the next startServer cycle.
+    NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+    NSError *err = nil;
+    id parsed = data ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&err] : nil;
+    if (!err && [parsed isKindOfClass:[NSDictionary class]]) {
+      NSString *path = ((NSDictionary *)parsed)[@"path"];
+      if ([path isKindOfClass:[NSString class]] && path.length > 0) {
+        id api = [self api];
+        if (api && [api respondsToSelector:@selector(registerExternalRoot:)]) {
+          [api registerExternalRoot:path];
+        }
+      }
+    }
+    return json;
+  } @catch (NSException *exception) {
+    NSLog(@"GoBridgeWrapper: pickExternalFolder exception: %@", exception);
+    return @"";
+  }
+}
+
++ (NSString *)getPersistedExternalFolders {
+  @try {
+    NSString *json = [ScopedFolderStore.shared getPersistedFoldersJSON];
+    return json ?: @"[]";
+  } @catch (NSException *exception) {
+    return @"[]";
+  }
+}
+
++ (BOOL)revokeExternalFolder:(NSString *)path {
+  @try {
+    if (path.length == 0) return NO;
+    BOOL ok = [ScopedFolderStore.shared revokeFolderByPath:path];
+    if (ok) {
+      id api = [self api];
+      if (api && [api respondsToSelector:@selector(unregisterExternalRoot:)]) {
+        [api unregisterExternalRoot:path];
+      }
+    }
+    return ok;
+  } @catch (NSException *exception) {
+    return NO;
+  }
+}
+
++ (BOOL)validateExternalFolder:(NSString *)path {
+  @try {
+    if (path.length == 0) return NO;
+    return [ScopedFolderStore.shared validateFolderByPath:path];
+  } @catch (NSException *exception) {
+    return NO;
+  }
+}
+
++ (NSString *)getExternalFolderDisplayName:(NSString *)path {
+  @try {
+    if (path.length == 0) return @"";
+    return [ScopedFolderStore.shared getDisplayNameByPath:path] ?: @"";
+  } @catch (NSException *exception) {
+    return @"";
+  }
+}
+
++ (void)previewFile:(NSString *)pathsJson startIndex:(NSInteger)startIndex {
+  @try {
+    if (pathsJson.length == 0) return;
+    NSData *data = [pathsJson dataUsingEncoding:NSUTF8StringEncoding];
+    NSError *err = nil;
+    id parsed = [NSJSONSerialization JSONObjectWithData:data options:0 error:&err];
+    if (err || ![parsed isKindOfClass:[NSArray class]]) {
+      NSLog(@"GoBridgeWrapper: previewFile bad json: %@", err);
+      return;
+    }
+    NSMutableArray<NSString *> *paths = [NSMutableArray array];
+    for (id item in (NSArray *)parsed) {
+      if ([item isKindOfClass:[NSString class]] && [(NSString *)item length] > 0) {
+        [paths addObject:(NSString *)item];
+      }
+    }
+    if (paths.count == 0) return;
+    [QuickLookPresenter.shared presentWithPaths:paths startIndex:startIndex];
+  } @catch (NSException *exception) {
+    NSLog(@"GoBridgeWrapper: previewFile exception: %@", exception);
+  }
 }
 
 @end

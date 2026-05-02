@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FormModal } from '../components/FormModal';
 import { Field } from '../components/Field';
 import { colors } from '../components/ui';
@@ -7,7 +7,10 @@ import { useSyncthing, useSyncthingClient } from '../daemon/SyncthingContext';
 import type { DeviceConfig, FolderConfig } from '../api/types';
 import { FolderPicker } from './FolderPicker';
 import { FolderTypePicker } from '../components/FolderTypePicker';
-import GoBridge from '../GoServerBridgeJSI';
+import {
+  filesystemTypeForExternal,
+  pickExternalFolderWithICloudWarning,
+} from '../fs/externalFolder';
 
 const FOLDER_ID_RE = /^[a-z0-9][a-z0-9-_.]*$/;
 
@@ -36,8 +39,8 @@ export function AddFolderModal({ visible, onClose, onAdded }: Props) {
   const client = useSyncthingClient();
 
   const [path, setPath] = useState('');
-  const [isSAF, setIsSAF] = useState(false);
-  const [safDisplayName, setSafDisplayName] = useState('');
+  const [isExternal, setIsExternal] = useState(false);
+  const [externalDisplayName, setExternalDisplayName] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
 
   const [label, setLabel] = useState('');
@@ -61,10 +64,10 @@ export function AddFolderModal({ visible, onClose, onAdded }: Props) {
   // auto-fill label/id from path unless the user's already typed in them
   useEffect(() => {
     if (!path) return;
-    const name = isSAF ? (safDisplayName || 'folder') : basename(path);
+    const name = isExternal ? (externalDisplayName || 'folder') : basename(path);
     if (!labelDirty) setLabel(name);
     if (!idDirty) setId(slugify(name));
-  }, [path, labelDirty, idDirty, isSAF, safDisplayName]);
+  }, [path, labelDirty, idDirty, isExternal, externalDisplayName]);
 
   const peerDevices = useMemo(
     () => devices.filter(d => d.deviceID !== info?.deviceId),
@@ -75,27 +78,27 @@ export function AddFolderModal({ visible, onClose, onAdded }: Props) {
 
   const displayPath = useMemo(() => {
     if (!path) return '';
-    if (isSAF) return safDisplayName || 'Device folder';
+    if (isExternal) return externalDisplayName || 'Device folder';
     if (pickerRoot && path.startsWith(pickerRoot)) {
       const rel = path.slice(pickerRoot.length) || '';
       return rel ? `folders${rel}` : 'folders/';
     }
     return path;
-  }, [path, pickerRoot, isSAF, safDisplayName]);
+  }, [path, pickerRoot, isExternal, externalDisplayName]);
 
   const effectiveId = id || slugify(basename(path));
   const effectiveLabel = label || basename(path);
   const idValid = FOLDER_ID_RE.test(effectiveId);
   const canSubmit = path.length > 0 && idValid;
 
-  const pickSafFolder = () => {
+  const pickExternal = () => {
     try {
-      const uri = GoBridge.pickSafFolder();
-      if (!uri) return;
-      setPath(uri);
-      setIsSAF(true);
-      const displayName = GoBridge.getSafDisplayName(uri);
-      setSafDisplayName(displayName || 'Device folder');
+      pickExternalFolderWithICloudWarning(folder => {
+        if (!folder) return;
+        setPath(folder.path);
+        setIsExternal(true);
+        setExternalDisplayName(folder.displayName || 'Device folder');
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -103,8 +106,8 @@ export function AddFolderModal({ visible, onClose, onAdded }: Props) {
 
   const reset = () => {
     setPath('');
-    setIsSAF(false);
-    setSafDisplayName('');
+    setIsExternal(false);
+    setExternalDisplayName('');
     setLabel('');
     setLabelDirty(false);
     setId('');
@@ -143,15 +146,21 @@ export function AddFolderModal({ visible, onClose, onAdded }: Props) {
           encryptionPassword: '',
         })),
       ];
+      // On Android, external folders use the 'saf' filesystem driver, which
+      // can't be watched via inotify — rely on 60s rescans. On iOS, external
+      // folders are plain POSIX once scope is held, so the regular watcher
+      // works and we can stay on the slower default rescan cadence.
+      const fsType = isExternal ? filesystemTypeForExternal() : 'basic';
+      const usesSaf = fsType === 'saf';
       const folder: FolderConfig = {
         id: effectiveId,
         label: effectiveLabel,
-        filesystemType: isSAF ? 'saf' : 'basic',
+        filesystemType: fsType,
         path,
         type: folderType,
         devices: folderDevices,
-        rescanIntervalS: isSAF ? 60 : 3600,
-        fsWatcherEnabled: !isSAF,
+        rescanIntervalS: usesSaf ? 60 : 3600,
+        fsWatcherEnabled: !usesSaf,
         fsWatcherDelayS: 10,
         ignorePerms: true,
         autoNormalize: true,
@@ -194,49 +203,41 @@ export function AddFolderModal({ visible, onClose, onAdded }: Props) {
         submitDisabled={!canSubmit}
       >
         <Text style={styles.sectionLabel}>Location</Text>
-        {Platform.OS === 'android' ? (
-          <>
-            <TouchableOpacity
-              style={[styles.pickerBtn, !path && styles.pickerBtnEmpty]}
-              onPress={isSAF ? pickSafFolder : pickSafFolder}
-            >
-              <Text style={[styles.pickerBtnText, !path && styles.pickerBtnTextEmpty]} numberOfLines={2}>
-                {displayPath || 'Pick folder…'}
-              </Text>
-              <Text style={styles.pickerArrow}>›</Text>
-            </TouchableOpacity>
-            <Text style={styles.hint}>
-              {isSAF
-                ? 'Syncing directly with this device folder.'
-                : 'Pick any folder on your device to sync.'}
-            </Text>
-            {!isSAF && (
-              <TouchableOpacity style={styles.safBtn} onPress={() => setPickerOpen(true)} disabled={!pickerRoot}>
-                <Text style={styles.safBtnText}>Use app storage instead</Text>
-              </TouchableOpacity>
-            )}
-            {isSAF && (
-              <TouchableOpacity style={styles.safBtn} onPress={() => { setIsSAF(false); setPath(''); setSafDisplayName(''); }}>
-                <Text style={styles.safBtnText}>Use app storage instead</Text>
-              </TouchableOpacity>
-            )}
-          </>
+        <TouchableOpacity
+          style={[styles.pickerBtn, !path && styles.pickerBtnEmpty]}
+          onPress={isExternal ? pickExternal : pickExternal}
+        >
+          <Text style={[styles.pickerBtnText, !path && styles.pickerBtnTextEmpty]} numberOfLines={2}>
+            {displayPath || 'Pick a folder on this device…'}
+          </Text>
+          <Text style={styles.pickerArrow}>›</Text>
+        </TouchableOpacity>
+        <Text style={styles.hint}>
+          {isExternal
+            ? 'Syncing directly with this device folder.'
+            : path
+              ? 'This folder lives inside the app sandbox and appears in the Files app.'
+              : 'Pick any folder on your device, or tap below to use app storage.'}
+        </Text>
+        {isExternal ? (
+          <TouchableOpacity
+            style={styles.safBtn}
+            onPress={() => {
+              setIsExternal(false);
+              setPath('');
+              setExternalDisplayName('');
+            }}
+          >
+            <Text style={styles.safBtnText}>Use app storage instead</Text>
+          </TouchableOpacity>
         ) : (
-          <>
-            <TouchableOpacity
-              style={[styles.pickerBtn, !path && styles.pickerBtnEmpty]}
-              onPress={() => setPickerOpen(true)}
-              disabled={!pickerRoot}
-            >
-              <Text style={[styles.pickerBtnText, !path && styles.pickerBtnTextEmpty]} numberOfLines={2}>
-                {displayPath || 'Pick folder…'}
-              </Text>
-              <Text style={styles.pickerArrow}>›</Text>
-            </TouchableOpacity>
-            <Text style={styles.hint}>
-              Folders live inside the app's sandbox and appear in the Files app.
-            </Text>
-          </>
+          <TouchableOpacity
+            style={styles.safBtn}
+            onPress={() => setPickerOpen(true)}
+            disabled={!pickerRoot}
+          >
+            <Text style={styles.safBtnText}>Use app storage instead</Text>
+          </TouchableOpacity>
         )}
 
         {path && (

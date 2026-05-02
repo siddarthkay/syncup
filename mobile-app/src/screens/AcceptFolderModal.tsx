@@ -1,12 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Platform, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { FormModal } from '../components/FormModal';
 import { colors } from '../components/ui';
 import { useSyncthing, useSyncthingClient } from '../daemon/SyncthingContext';
 import type { DeviceConfig, FolderConfig, PendingFolderOffer } from '../api/types';
 import { FolderPicker } from './FolderPicker';
 import { FolderTypePicker } from '../components/FolderTypePicker';
-import GoBridge from '../GoServerBridgeJSI';
+import {
+  filesystemTypeForExternal,
+  pickExternalFolderWithICloudWarning,
+} from '../fs/externalFolder';
 
 interface Props {
   visible: boolean;
@@ -20,8 +23,8 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
   const client = useSyncthingClient();
 
   const [path, setPath] = useState('');
-  const [isSAF, setIsSAF] = useState(false);
-  const [safDisplayName, setSafDisplayName] = useState('');
+  const [isExternal, setIsExternal] = useState(false);
+  const [externalDisplayName, setExternalDisplayName] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
   const [allDevices, setAllDevices] = useState<DeviceConfig[]>([]);
   const [extraPeers, setExtraPeers] = useState<Set<string>>(new Set());
@@ -32,8 +35,8 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
   useEffect(() => {
     if (!visible) return;
     setPath('');
-    setIsSAF(false);
-    setSafDisplayName('');
+    setIsExternal(false);
+    setExternalDisplayName('');
     setExtraPeers(new Set());
     // encrypted slot from the peer => receiveencrypted, else two-way
     setFolderType(offer?.receiveEncrypted ? 'receiveencrypted' : 'sendreceive');
@@ -44,14 +47,14 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
 
   const pickerRoot = info?.foldersRoot ?? '';
 
-  const pickSafFolder = () => {
+  const pickExternal = () => {
     try {
-      const uri = GoBridge.pickSafFolder();
-      if (!uri) return;
-      setPath(uri);
-      setIsSAF(true);
-      const displayName = GoBridge.getSafDisplayName(uri);
-      setSafDisplayName(displayName || 'Device folder');
+      pickExternalFolderWithICloudWarning(folder => {
+        if (!folder) return;
+        setPath(folder.path);
+        setIsExternal(true);
+        setExternalDisplayName(folder.displayName || 'Device folder');
+      });
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -59,13 +62,13 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
 
   const displayPath = useMemo(() => {
     if (!path) return '';
-    if (isSAF) return safDisplayName || 'Device folder';
+    if (isExternal) return externalDisplayName || 'Device folder';
     if (pickerRoot && path.startsWith(pickerRoot)) {
       const rel = path.slice(pickerRoot.length) || '/';
       return `folders${rel}`;
     }
     return path;
-  }, [path, pickerRoot, isSAF, safDisplayName]);
+  }, [path, pickerRoot, isExternal, externalDisplayName]);
 
   const otherPeers = useMemo(
     () =>
@@ -102,15 +105,17 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
           encryptionPassword: '',
         })),
       ];
+      const fsType = isExternal ? filesystemTypeForExternal() : 'basic';
+      const usesSaf = fsType === 'saf';
       const folder: FolderConfig = {
         id: offer.folderId,
         label: offer.label || offer.folderId,
-        filesystemType: isSAF ? 'saf' : 'basic',
+        filesystemType: fsType,
         path,
         type: folderType,
         devices,
-        rescanIntervalS: isSAF ? 60 : 3600,
-        fsWatcherEnabled: !isSAF,
+        rescanIntervalS: usesSaf ? 60 : 3600,
+        fsWatcherEnabled: !usesSaf,
         fsWatcherDelayS: 10,
         ignorePerms: true,
         autoNormalize: true,
@@ -160,48 +165,41 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
         </View>
 
         <Text style={styles.sectionLabel}>Where to store it</Text>
-        {Platform.OS === 'android' ? (
-          <>
-            <TouchableOpacity
-              style={[styles.pickerBtn, !path && styles.pickerBtnEmpty]}
-              onPress={pickSafFolder}
-            >
-              <Text style={[styles.pickerBtnText, !path && styles.pickerBtnTextEmpty]} numberOfLines={2}>
-                {displayPath || 'Pick folder…'}
-              </Text>
-              <Text style={styles.pickerArrow}>›</Text>
-            </TouchableOpacity>
-            <Text style={styles.hint}>
-              {isSAF
-                ? 'Syncing directly with this device folder.'
-                : 'Pick any folder on your device.'}
-            </Text>
-            {isSAF ? (
-              <TouchableOpacity style={styles.safBtn} onPress={() => { setIsSAF(false); setPath(''); setSafDisplayName(''); }}>
-                <Text style={styles.safBtnText}>Use app storage instead</Text>
-              </TouchableOpacity>
-            ) : (
-              <TouchableOpacity style={styles.safBtn} onPress={() => setPickerOpen(true)} disabled={!pickerRoot}>
-                <Text style={styles.safBtnText}>Use app storage instead</Text>
-              </TouchableOpacity>
-            )}
-          </>
+        <TouchableOpacity
+          style={[styles.pickerBtn, !path && styles.pickerBtnEmpty]}
+          onPress={pickExternal}
+        >
+          <Text style={[styles.pickerBtnText, !path && styles.pickerBtnTextEmpty]} numberOfLines={2}>
+            {displayPath || 'Pick a folder on this device…'}
+          </Text>
+          <Text style={styles.pickerArrow}>›</Text>
+        </TouchableOpacity>
+        <Text style={styles.hint}>
+          {isExternal
+            ? 'Files from the peer will sync directly with this device folder.'
+            : path
+              ? 'Files from the peer will be stored in this app-managed directory.'
+              : 'Pick any folder on your device, or tap below to use app storage.'}
+        </Text>
+        {isExternal ? (
+          <TouchableOpacity
+            style={styles.safBtn}
+            onPress={() => {
+              setIsExternal(false);
+              setPath('');
+              setExternalDisplayName('');
+            }}
+          >
+            <Text style={styles.safBtnText}>Use app storage instead</Text>
+          </TouchableOpacity>
         ) : (
-          <>
-            <TouchableOpacity
-              style={[styles.pickerBtn, !path && styles.pickerBtnEmpty]}
-              onPress={() => setPickerOpen(true)}
-              disabled={!pickerRoot}
-            >
-              <Text style={[styles.pickerBtnText, !path && styles.pickerBtnTextEmpty]} numberOfLines={2}>
-                {displayPath || 'Pick folder…'}
-              </Text>
-              <Text style={styles.pickerArrow}>›</Text>
-            </TouchableOpacity>
-            <Text style={styles.hint}>
-              Files from the peer will be stored in this directory.
-            </Text>
-          </>
+          <TouchableOpacity
+            style={styles.safBtn}
+            onPress={() => setPickerOpen(true)}
+            disabled={!pickerRoot}
+          >
+            <Text style={styles.safBtnText}>Use app storage instead</Text>
+          </TouchableOpacity>
         )}
 
         <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Folder type</Text>

@@ -259,10 +259,11 @@ class GoServerBridgeModule(reactContext: ReactApplicationContext) :
         )
     }
 
-    override fun pickSafFolder(): String {
+    override fun pickExternalFolder(): String {
         // Launch the system SAF folder picker synchronously from the JS thread.
         // We use SAFPickerHelper which is registered on the Activity and blocks
-        // until the user picks a folder or cancels.
+        // until the user picks a folder or cancels. Returns JSON describing
+        // the picked folder, matching iOS's UIDocumentPicker shape.
         val activity = ctx.currentActivity as? MainActivity
             ?: return ""
         val uri = activity.pickSafFolderBlocking() ?: return ""
@@ -270,15 +271,42 @@ class GoServerBridgeModule(reactContext: ReactApplicationContext) :
         val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
             Intent.FLAG_GRANT_WRITE_URI_PERMISSION
         ctx.contentResolver.takePersistableUriPermission(uri, flags)
-        return uri.toString()
+        val uriString = uri.toString()
+        val displayName = try {
+            safProvider.getDisplayName(uriString)
+        } catch (e: Exception) {
+            uriString
+        }
+        return org.json.JSONObject().apply {
+            put("ok", true)
+            put("id", uriString)
+            put("path", uriString)
+            put("displayName", displayName)
+            put("isUbiquitous", false)
+        }.toString()
     }
 
-    override fun getSafPersistedUris(): String {
+    override fun getPersistedExternalFolders(): String {
         return try {
             val perms = ctx.contentResolver.persistedUriPermissions
             val arr = org.json.JSONArray()
             for (p in perms) {
-                arr.put(p.uri.toString())
+                val uriString = p.uri.toString()
+                val displayName = try {
+                    safProvider.getDisplayName(uriString)
+                } catch (e: Exception) {
+                    uriString
+                }
+                val obj = org.json.JSONObject().apply {
+                    put("id", uriString)
+                    put("path", uriString)
+                    put("displayName", displayName)
+                    // Android's permission model doesn't surface "stale" the way
+                    // iOS bookmarks do; revoked permissions just disappear from
+                    // persistedUriPermissions, so anything in the list is live.
+                    put("isStale", false)
+                }
+                arr.put(obj)
             }
             arr.toString()
         } catch (e: Exception) {
@@ -286,24 +314,24 @@ class GoServerBridgeModule(reactContext: ReactApplicationContext) :
         }
     }
 
-    override fun revokeSafPermission(uri: String): Boolean {
+    override fun revokeExternalFolder(path: String): Boolean {
         return try {
             val flags = Intent.FLAG_GRANT_READ_URI_PERMISSION or
                 Intent.FLAG_GRANT_WRITE_URI_PERMISSION
-            ctx.contentResolver.releasePersistableUriPermission(Uri.parse(uri), flags)
+            ctx.contentResolver.releasePersistableUriPermission(Uri.parse(path), flags)
             true
         } catch (e: Exception) {
-            android.util.Log.e(NAME, "revokeSafPermission failed", e)
+            android.util.Log.e(NAME, "revokeExternalFolder failed", e)
             false
         }
     }
 
-    override fun getSafDisplayName(uri: String): String {
+    override fun getExternalFolderDisplayName(path: String): String {
         return try {
-            safProvider.getDisplayName(uri)
+            safProvider.getDisplayName(path)
         } catch (e: Exception) {
-            android.util.Log.e(NAME, "getSafDisplayName failed", e)
-            uri
+            android.util.Log.e(NAME, "getExternalFolderDisplayName failed", e)
+            path
         }
     }
 
@@ -334,13 +362,18 @@ class GoServerBridgeModule(reactContext: ReactApplicationContext) :
         }
     }
 
-    override fun validateSafPermission(uri: String): Boolean {
+    override fun validateExternalFolder(path: String): Boolean {
         return try {
-            mobileAPI.validateSAFPermission(uri)
+            mobileAPI.validateSAFPermission(path)
         } catch (e: Exception) {
-            android.util.Log.e(NAME, "validateSafPermission failed", e)
+            android.util.Log.e(NAME, "validateExternalFolder failed", e)
             false
         }
+    }
+
+    override fun previewFileNative(pathsJson: String, startIndex: Double) {
+        // No-op on Android; the JS-side FilePreviewModal handles preview.
+        // Spec is shared cross-platform so we accept the call but ignore it.
     }
 
     override fun openFolderInFileManager(path: String): Boolean {

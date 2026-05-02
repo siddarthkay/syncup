@@ -1,6 +1,7 @@
 package gobridge
 
 import (
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -146,5 +147,82 @@ func TestInSandboxAt(t *testing.T) {
 func TestInSandboxAtEmptyDataDir(t *testing.T) {
 	if _, err := inSandboxAt("", "/anywhere"); err == nil {
 		t.Error("inSandboxAt(\"\", ...) succeeded; expected error for empty dataDir")
+	}
+}
+
+// On iOS, UIDocumentPicker hands back paths under /private/var/... but the
+// Go runtime's filepath.Abs of paths the JS side derives can be /var/...
+// (or vice-versa). canonicalize must collapse these so prefix-matching works.
+func TestInSandboxAtRootsResolvesSymlinks(t *testing.T) {
+	tmp := t.TempDir()
+	realRoot := filepath.Join(tmp, "real")
+	if err := os.MkdirAll(realRoot, 0o700); err != nil {
+		t.Fatalf("mkdir realRoot: %v", err)
+	}
+	linkRoot := filepath.Join(tmp, "alias")
+	if err := os.Symlink(realRoot, linkRoot); err != nil {
+		t.Skipf("symlink unsupported on this filesystem: %v", err)
+	}
+
+	// Register the symlink form as the root; the input arrives in the
+	// resolved form (mirrors iOS handing us a /private/var/... path while
+	// we registered /var/...).
+	child := filepath.Join(realRoot, "subdir")
+	if err := os.MkdirAll(child, 0o700); err != nil {
+		t.Fatalf("mkdir child: %v", err)
+	}
+
+	got, err := inSandboxAtRoots([]string{linkRoot}, child)
+	if err != nil {
+		t.Fatalf("inSandboxAtRoots(linkRoot, child) returned error: %v", err)
+	}
+	// The returned path is the input form (so call sites can use it
+	// for downstream os.* operations without resolving themselves).
+	if got != child {
+		t.Errorf("returned path = %q, want %q", got, child)
+	}
+
+	// And the reverse: registered the real root, ask about a symlink path.
+	gotRev, err := inSandboxAtRoots([]string{realRoot}, filepath.Join(linkRoot, "subdir"))
+	if err != nil {
+		t.Fatalf("inSandboxAtRoots(realRoot, linkRoot/subdir) returned error: %v", err)
+	}
+	if !strings.HasSuffix(gotRev, "subdir") {
+		t.Errorf("returned path = %q, want suffix 'subdir'", gotRev)
+	}
+}
+
+func TestRegisterExternalRootIdempotent(t *testing.T) {
+	// Reset the package state so the test is hermetic.
+	globalMu.Lock()
+	saved := externalRoots
+	externalRoots = nil
+	globalMu.Unlock()
+	t.Cleanup(func() {
+		globalMu.Lock()
+		externalRoots = saved
+		globalMu.Unlock()
+	})
+
+	tmp := t.TempDir()
+	api := NewMobileAPI()
+	api.RegisterExternalRoot(tmp)
+	api.RegisterExternalRoot(tmp)
+	api.RegisterExternalRoot(tmp)
+
+	globalMu.Lock()
+	count := len(externalRoots)
+	globalMu.Unlock()
+
+	if count != 1 {
+		t.Errorf("expected 1 external root after duplicate registers, got %d", count)
+	}
+
+	api.UnregisterExternalRoot(tmp)
+	globalMu.Lock()
+	count = len(externalRoots)
+	globalMu.Unlock()
+	if count != 0 {
+		t.Errorf("expected 0 external roots after unregister, got %d", count)
 	}
 }

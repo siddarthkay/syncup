@@ -246,6 +246,21 @@ export function FolderBrowser({ folder, isSelective, onBack }: Props) {
       setPath(joinPath(path, entry.name));
       return;
     }
+    openPreview(entry);
+  };
+
+  const openPreview = (entry: TreeEntry) => {
+    // iOS gets the system QLPreviewController for native chrome (zoom,
+    // scrub, AirPlay, share). Android stays on the JS-side modal which
+    // covers PDF + Expo video well enough.
+    if (Platform.OS === 'ios') {
+      const fileUri = onDiskUri(resolvedFolderPath, joinPath(path, entry.name));
+      const filePath = fileUri.startsWith('file://') ? fileUri.slice('file://'.length) : fileUri;
+      if (filePath) {
+        GoBridge.previewFileNative(JSON.stringify([filePath]), 0);
+        return;
+      }
+    }
     setPreview(entry);
   };
 
@@ -317,7 +332,7 @@ export function FolderBrowser({ folder, isSelective, onBack }: Props) {
 
     if (!isDirEntry(entry)) {
       options.push('Preview');
-      handlers.push(() => setPreview(entry));
+      handlers.push(() => openPreview(entry));
     }
     options.push('Share');
     handlers.push(() => shareOne(uri, entry.name));

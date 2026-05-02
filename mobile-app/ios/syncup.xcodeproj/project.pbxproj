@@ -19,6 +19,8 @@
 		BM01234567890ABC12345006 /* AppShortcuts.swift in Sources */ = {isa = PBXBuildFile; fileRef = BM01234567890ABC12345005 /* AppShortcuts.swift */; };
 		F11748422D0307B40044C1D9 /* AppDelegate.swift in Sources */ = {isa = PBXBuildFile; fileRef = F11748412D0307B40044C1D9 /* AppDelegate.swift */; };
 		G0S1234567890ABC12345678 /* GoServerBridge.mm in Sources */ = {isa = PBXBuildFile; fileRef = G0S1234567890ABC12345679 /* GoServerBridge.mm */; };
+		QL01234567890ABC12345002 /* QuickLookPresenter.swift in Sources */ = {isa = PBXBuildFile; fileRef = QL01234567890ABC12345001 /* QuickLookPresenter.swift */; };
+		SF01234567890ABC12345002 /* ScopedFolderStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = SF01234567890ABC12345001 /* ScopedFolderStore.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -41,6 +43,8 @@
 		FB0085F001083A8C91ADF71C /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; name = PrivacyInfo.xcprivacy; path = syncup/PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		G0S1234567890ABC12345679 /* GoServerBridge.mm */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.cpp.objcpp; name = GoServerBridge.mm; path = syncup/GoServerBridge.mm; sourceTree = "<group>"; };
 		G0S1234567890ABC12345680 /* GoServerBridge.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; name = GoServerBridge.h; path = syncup/GoServerBridge.h; sourceTree = "<group>"; };
+		QL01234567890ABC12345001 /* QuickLookPresenter.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = QuickLookPresenter.swift; path = syncup/QuickLookPresenter.swift; sourceTree = "<group>"; };
+		SF01234567890ABC12345001 /* ScopedFolderStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; name = ScopedFolderStore.swift; path = syncup/ScopedFolderStore.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -64,6 +68,8 @@
 				BM01234567890ABC12345005 /* AppShortcuts.swift */,
 				G0S1234567890ABC12345680 /* GoServerBridge.h */,
 				G0S1234567890ABC12345679 /* GoServerBridge.mm */,
+				SF01234567890ABC12345001 /* ScopedFolderStore.swift */,
+				QL01234567890ABC12345001 /* QuickLookPresenter.swift */,
 				BB2F792B24A3F905000567C9 /* Supporting */,
 				13B07FB51A68108700A75B9A /* Images.xcassets */,
 				13B07FB61A68108700A75B9A /* Info.plist */,
@@ -355,6 +361,8 @@
 				G0S1234567890ABC12345678 /* GoServerBridge.mm in Sources */,
 				949EB339D788314DE425296D /* ExpoModulesProvider.swift in Sources */,
 				0C823C245A529D0F8E0CEB71 /* GoBridgeWrapper.mm in Sources */,
+				SF01234567890ABC12345002 /* ScopedFolderStore.swift in Sources */,
+				QL01234567890ABC12345002 /* QuickLookPresenter.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

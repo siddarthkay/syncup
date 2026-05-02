@@ -152,29 +152,41 @@ bool GoServerBridgeImpl::maybeNotifyFolderErrors(facebook::jsi::Runtime &rt,
                                                          sample:smp];
 }
 
-// SAF stubs - Android-only features; return empty/false on iOS.
-facebook::jsi::String GoServerBridgeImpl::pickSafFolder(facebook::jsi::Runtime &rt) {
-    return facebook::jsi::String::createFromUtf8(rt, "");
+facebook::jsi::String GoServerBridgeImpl::pickExternalFolder(facebook::jsi::Runtime &rt) {
+    NSString *result = [GoBridgeWrapper pickExternalFolder] ?: @"";
+    return facebook::jsi::String::createFromUtf8(rt, [result UTF8String]);
 }
 
-facebook::jsi::String GoServerBridgeImpl::getSafPersistedUris(facebook::jsi::Runtime &rt) {
-    return facebook::jsi::String::createFromUtf8(rt, "[]");
+facebook::jsi::String GoServerBridgeImpl::getPersistedExternalFolders(facebook::jsi::Runtime &rt) {
+    NSString *result = [GoBridgeWrapper getPersistedExternalFolders] ?: @"[]";
+    return facebook::jsi::String::createFromUtf8(rt, [result UTF8String]);
 }
 
-bool GoServerBridgeImpl::revokeSafPermission(facebook::jsi::Runtime &rt, facebook::jsi::String uri) {
-    return false;
+bool GoServerBridgeImpl::revokeExternalFolder(facebook::jsi::Runtime &rt, facebook::jsi::String path) {
+    NSString *p = [NSString stringWithUTF8String:path.utf8(rt).c_str()];
+    return [GoBridgeWrapper revokeExternalFolder:p];
 }
 
-facebook::jsi::String GoServerBridgeImpl::getSafDisplayName(facebook::jsi::Runtime &rt, facebook::jsi::String uri) {
-    return facebook::jsi::String::createFromUtf8(rt, "");
+facebook::jsi::String GoServerBridgeImpl::getExternalFolderDisplayName(facebook::jsi::Runtime &rt, facebook::jsi::String path) {
+    NSString *p = [NSString stringWithUTF8String:path.utf8(rt).c_str()];
+    NSString *result = [GoBridgeWrapper getExternalFolderDisplayName:p] ?: @"";
+    return facebook::jsi::String::createFromUtf8(rt, [result UTF8String]);
 }
 
-bool GoServerBridgeImpl::validateSafPermission(facebook::jsi::Runtime &rt, facebook::jsi::String uri) {
-    return false;
+bool GoServerBridgeImpl::validateExternalFolder(facebook::jsi::Runtime &rt, facebook::jsi::String path) {
+    NSString *p = [NSString stringWithUTF8String:path.utf8(rt).c_str()];
+    return [GoBridgeWrapper validateExternalFolder:p];
 }
 
+// SAF-specific cache copy; Android delegates to SAFProvider, iOS no-op
+// (a scoped folder's path is already a real file URI the RN preview can load).
 facebook::jsi::String GoServerBridgeImpl::copySafFileToCache(facebook::jsi::Runtime &rt, facebook::jsi::String treeURI, facebook::jsi::String relativePath) {
     return facebook::jsi::String::createFromUtf8(rt, "");
+}
+
+void GoServerBridgeImpl::previewFileNative(facebook::jsi::Runtime &rt, facebook::jsi::String pathsJson, double startIndex) {
+    NSString *p = [NSString stringWithUTF8String:pathsJson.utf8(rt).c_str()];
+    [GoBridgeWrapper previewFile:p startIndex:(NSInteger)startIndex];
 }
 #endif
 

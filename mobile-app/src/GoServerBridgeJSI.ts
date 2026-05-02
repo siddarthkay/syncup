@@ -33,12 +33,13 @@ export interface GoServerBridgeInterface {
     label: string,
     sampleError: string,
   ): boolean;
-  pickSafFolder(): string;
-  getSafPersistedUris(): string;
-  revokeSafPermission(uri: string): boolean;
-  getSafDisplayName(uri: string): string;
-  validateSafPermission(uri: string): boolean;
+  pickExternalFolder(): string;
+  getPersistedExternalFolders(): string;
+  revokeExternalFolder(path: string): boolean;
+  getExternalFolderDisplayName(path: string): string;
+  validateExternalFolder(path: string): boolean;
   copySafFileToCache(treeURI: string, relativePath: string): string;
+  previewFileNative(pathsJson: string, startIndex: number): void;
 }
 
 class GoServerBridgeJSI implements GoServerBridgeInterface {
@@ -159,28 +160,32 @@ class GoServerBridgeJSI implements GoServerBridgeInterface {
       sampleError,
     );
   }
-  pickSafFolder(): string {
-    return NativeGoServerBridge.pickSafFolder();
+  pickExternalFolder(): string {
+    return NativeGoServerBridge.pickExternalFolder();
   }
 
-  getSafPersistedUris(): string {
-    return NativeGoServerBridge.getSafPersistedUris();
+  getPersistedExternalFolders(): string {
+    return NativeGoServerBridge.getPersistedExternalFolders();
   }
 
-  revokeSafPermission(uri: string): boolean {
-    return NativeGoServerBridge.revokeSafPermission(uri);
+  revokeExternalFolder(path: string): boolean {
+    return NativeGoServerBridge.revokeExternalFolder(path);
   }
 
-  getSafDisplayName(uri: string): string {
-    return NativeGoServerBridge.getSafDisplayName(uri);
+  getExternalFolderDisplayName(path: string): string {
+    return NativeGoServerBridge.getExternalFolderDisplayName(path);
   }
 
-  validateSafPermission(uri: string): boolean {
-    return NativeGoServerBridge.validateSafPermission(uri);
+  validateExternalFolder(path: string): boolean {
+    return NativeGoServerBridge.validateExternalFolder(path);
   }
 
   copySafFileToCache(treeURI: string, relativePath: string): string {
     return NativeGoServerBridge.copySafFileToCache(treeURI, relativePath);
+  }
+
+  previewFileNative(pathsJson: string, startIndex: number): void {
+    NativeGoServerBridge.previewFileNative(pathsJson, startIndex);
   }
 }
 

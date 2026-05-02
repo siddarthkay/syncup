@@ -24,6 +24,11 @@ var (
 	globalMu           sync.Mutex
 	pendingFoldersRoot string
 	globalSAFBridge    SAFBridge
+	// externalRoots is the set of additional sandbox roots registered by the
+	// platform layer (iOS scoped folders, after security-scoped resource access
+	// has been started). Stored canonicalised (symlinks resolved where the path
+	// exists) so prefix-match works across /var ↔ /private/var on iOS.
+	externalRoots []string
 )
 
 // SetSAFBridge registers the Kotlin-side SAF implementation so the "saf"
@@ -33,6 +38,66 @@ func (m *MobileAPI) SetSAFBridge(bridge SAFBridge) {
 	globalMu.Lock()
 	defer globalMu.Unlock()
 	globalSAFBridge = bridge
+}
+
+// RegisterExternalRoot whitelists path as a sandbox root for JS-driven file
+// ops (ListSubdirs, MkdirSubdir, RemoveDir, CopyFile dst). Used by iOS after
+// resolving a security-scoped bookmark; once the platform layer holds scope,
+// the path becomes a regular POSIX path the syncthing core can read/write.
+// Idempotent. Path is canonicalised so symlink-equivalent paths match.
+func (m *MobileAPI) RegisterExternalRoot(path string) {
+	if path == "" {
+		return
+	}
+	canonical := canonicalize(path)
+	globalMu.Lock()
+	defer globalMu.Unlock()
+	for _, r := range externalRoots {
+		if r == canonical {
+			return
+		}
+	}
+	externalRoots = append(externalRoots, canonical)
+}
+
+// UnregisterExternalRoot removes path from the sandbox allow-list. Called by
+// iOS when the user revokes a scoped folder.
+func (m *MobileAPI) UnregisterExternalRoot(path string) {
+	canonical := canonicalize(path)
+	globalMu.Lock()
+	defer globalMu.Unlock()
+	kept := externalRoots[:0]
+	for _, r := range externalRoots {
+		if r != canonical {
+			kept = append(kept, r)
+		}
+	}
+	externalRoots = kept
+}
+
+// canonicalize returns an absolute, symlinks-resolved form of p so that
+// prefix-matching is stable across /var ↔ /private/var on iOS. Falls back to
+// Abs+Clean if the path doesn't exist (so we can still register a root that
+// will be created later).
+func canonicalize(p string) string {
+	abs, err := filepath.Abs(p)
+	if err != nil {
+		return filepath.Clean(p)
+	}
+	abs = filepath.Clean(abs)
+	if resolved, err := filepath.EvalSymlinks(abs); err == nil {
+		return resolved
+	}
+	// Walk up to the deepest existing ancestor, resolve it, then re-attach
+	// the missing tail. Lets a not-yet-created path normalize correctly.
+	parent := filepath.Dir(abs)
+	if parent == abs {
+		return abs
+	}
+	if resolved, err := filepath.EvalSymlinks(parent); err == nil {
+		return filepath.Join(resolved, filepath.Base(abs))
+	}
+	return abs
 }
 
 // ValidateSAFPermission checks whether the app still holds read+write access
@@ -192,8 +257,9 @@ func marshalErr(err error) string {
 	return string(b)
 }
 
-// inSandbox returns a cleaned absolute path iff p is under dataDir or
-// foldersRoot. Blocks ".." escapes from the JS side.
+// inSandbox returns a cleaned absolute path iff p is under dataDir,
+// foldersRoot, or any registered external root. Blocks ".." escapes
+// from the JS side.
 func inSandbox(p string) (string, error) {
 	dataDir := currentDataDir()
 	if dataDir == "" {
@@ -203,6 +269,9 @@ func inSandbox(p string) (string, error) {
 	if r := currentFoldersRoot(); r != "" && r != dataDir {
 		roots = append(roots, r)
 	}
+	globalMu.Lock()
+	roots = append(roots, externalRoots...)
+	globalMu.Unlock()
 	return inSandboxAtRoots(roots, p)
 }
 
@@ -212,7 +281,9 @@ func inSandboxAt(dataDir, p string) (string, error) {
 }
 
 // inSandboxAtRoots accepts a path equal to or separator-anchored under any
-// of the roots. Pure so tests don't need a running daemon.
+// of the roots. Roots and the input are both canonicalised (symlinks
+// resolved when possible) so iOS /var ↔ /private/var matches. Pure so
+// tests don't need a running daemon.
 func inSandboxAtRoots(roots []string, p string) (string, error) {
 	if len(roots) == 0 {
 		return "", errors.New("no sandbox roots")
@@ -222,6 +293,7 @@ func inSandboxAtRoots(roots []string, p string) (string, error) {
 		return "", err
 	}
 	absP = filepath.Clean(absP)
+	canonP := canonicalize(absP)
 	for _, root := range roots {
 		if root == "" {
 			continue
@@ -230,8 +302,13 @@ func inSandboxAtRoots(roots []string, p string) (string, error) {
 		if err != nil {
 			continue
 		}
-		if absP == absRoot || strings.HasPrefix(absP, absRoot+string(os.PathSeparator)) {
-			return absP, nil
+		canonRoot := canonicalize(absRoot)
+		for _, r := range []string{absRoot, canonRoot} {
+			for _, candidate := range []string{absP, canonP} {
+				if candidate == r || strings.HasPrefix(candidate, r+string(os.PathSeparator)) {
+					return absP, nil
+				}
+			}
 		}
 	}
 	return "", errors.New("path outside sandbox")
