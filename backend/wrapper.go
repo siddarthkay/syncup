@@ -131,6 +131,13 @@ func (c *Client) Load(configDir, dataDir string) error {
 		conf.Options.URURL = ""
 		conf.Options.ReleasesURL = ""
 		conf.Defaults.Folder.IgnorePerms = true
+		// fix for https://github.com/siddarthkay/syncup/issues/11
+		// Anchor to foldersRoot so auto-accepts land in the same accessible location as manually-added folders.
+		effectiveFoldersRoot := c.foldersRoot
+		if effectiveFoldersRoot == "" {
+			effectiveFoldersRoot = filepath.Join(dataDir, "folders")
+		}
+		conf.Defaults.Folder.Path = effectiveFoldersRoot
 
 		// drop stub folders left by earlier bad submits
 		kept := conf.Folders[:0]
@@ -364,7 +371,22 @@ func (c *Client) SetFoldersRoot(path string) error {
 	}
 	c.mu.Lock()
 	c.foldersRoot = abs
+	cfg := c.config
 	c.mu.Unlock()
+
+	// Keep Defaults.Folder.Path aligned so future auto-accepts land here too.
+	if cfg != nil {
+		waiter, err := cfg.Modify(func(conf *config.Configuration) {
+			conf.Defaults.Folder.Path = abs
+		})
+		if err != nil {
+			return err
+		}
+		waiter.Wait()
+		if err := cfg.Save(); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 
