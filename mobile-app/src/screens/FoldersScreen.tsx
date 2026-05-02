@@ -163,7 +163,7 @@ export function FoldersScreen() {
         ))}
       </ScrollView>
 
-      <Fab onPress={() => setShowAdd(true)} />
+      <Fab onPress={() => setShowAdd(true)} coachId="folders.fab" />
       <TouchableOpacity
         style={styles.cameraFab}
         onPress={() => setShowCapture(true)}

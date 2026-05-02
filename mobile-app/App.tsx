@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { StatusBar } from 'expo-status-bar';
 import { StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
@@ -11,6 +11,9 @@ import { FoldersScreen } from './src/screens/FoldersScreen';
 import { DevicesScreen } from './src/screens/DevicesScreen';
 import { SettingsScreen } from './src/screens/SettingsScreen';
 import { SearchModal } from './src/screens/SearchModal';
+import { CoachProvider, useCoach, type CoachTabKey } from './src/onboarding/coach/CoachContext';
+import { CoachOverlay } from './src/onboarding/coach/CoachOverlay';
+import { useOnboarding } from './src/onboarding/useOnboarding';
 import { colors } from './src/components/ui';
 
 type Tab = 'status' | 'folders' | 'devices' | 'settings';
@@ -23,53 +26,83 @@ const TABS: readonly { key: Tab; label: string }[] = [
 ];
 
 export default function App() {
-  const [tab, setTab] = useState<Tab>('status');
-  const [searchOpen, setSearchOpen] = useState(false);
-
   return (
     <SafeAreaProvider>
       <SyncthingProvider>
         <EventsProvider>
-        <RecentChangesProvider>
-        <SyncNotifier />
-        <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
-          <StatusBar style="light" />
-          <View style={styles.header}>
-            <Text style={styles.title}>SyncUp</Text>
-            <TouchableOpacity onPress={() => setSearchOpen(true)} hitSlop={10}>
-              <Text style={styles.searchIcon}>🔍</Text>
-            </TouchableOpacity>
-          </View>
-          {searchOpen && <SearchModal visible onClose={() => setSearchOpen(false)} />}
-
-          <View style={styles.screen}>
-            {tab === 'status' && <StatusScreen />}
-            {tab === 'folders' && <FoldersScreen />}
-            {tab === 'devices' && <DevicesScreen />}
-            {tab === 'settings' && <SettingsScreen />}
-          </View>
-
-          <SafeAreaView edges={['bottom']} style={styles.tabBarSafeArea}>
-            <View style={styles.tabBar}>
-              {TABS.map(t => (
-                <TouchableOpacity
-                  key={t.key}
-                  style={[styles.tab, tab === t.key && styles.tabActive]}
-                  onPress={() => setTab(t.key)}
-                >
-                  <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>
-                    {t.label}
-                  </Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-          </SafeAreaView>
-        </SafeAreaView>
-        </RecentChangesProvider>
+          <RecentChangesProvider>
+            <SyncNotifier />
+            <Shell />
+          </RecentChangesProvider>
         </EventsProvider>
       </SyncthingProvider>
     </SafeAreaProvider>
   );
+}
+
+function Shell() {
+  const [tab, setTab] = useState<Tab>('status');
+  const [searchOpen, setSearchOpen] = useState(false);
+  const onboarding = useOnboarding();
+
+  const handleSetTab = useCallback((next: CoachTabKey) => setTab(next), []);
+  const handleOnboardingDone = useCallback(() => {
+    onboarding.complete();
+  }, [onboarding]);
+
+  return (
+    <CoachProvider onSetTab={handleSetTab} onDone={handleOnboardingDone}>
+      <CoachAutoStart pending={onboarding.state === 'pending'} />
+      <SafeAreaView style={styles.container} edges={['top', 'left', 'right']}>
+        <StatusBar style="light" />
+        <View style={styles.header}>
+          <Text style={styles.title}>SyncUp</Text>
+          <TouchableOpacity onPress={() => setSearchOpen(true)} hitSlop={10}>
+            <Text style={styles.searchIcon}>🔍</Text>
+          </TouchableOpacity>
+        </View>
+        {searchOpen && <SearchModal visible onClose={() => setSearchOpen(false)} />}
+
+        <View style={styles.screen}>
+          {tab === 'status' && <StatusScreen />}
+          {tab === 'folders' && <FoldersScreen />}
+          {tab === 'devices' && <DevicesScreen />}
+          {tab === 'settings' && <SettingsScreen />}
+        </View>
+
+        <SafeAreaView edges={['bottom']} style={styles.tabBarSafeArea}>
+          <View style={styles.tabBar}>
+            {TABS.map(t => (
+              <TouchableOpacity
+                key={t.key}
+                style={[styles.tab, tab === t.key && styles.tabActive]}
+                onPress={() => setTab(t.key)}
+              >
+                <Text style={[styles.tabText, tab === t.key && styles.tabTextActive]}>
+                  {t.label}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+        </SafeAreaView>
+      </SafeAreaView>
+
+      <CoachOverlay />
+    </CoachProvider>
+  );
+}
+
+/** Kicks the coach off once the onboarding gate resolves to 'pending'. */
+function CoachAutoStart({ pending }: { pending: boolean }) {
+  const coach = useCoach();
+  const startedRef = React.useRef(false);
+  useEffect(() => {
+    if (pending && !startedRef.current && !coach.active) {
+      startedRef.current = true;
+      coach.start();
+    }
+  }, [pending, coach]);
+  return null;
 }
 
 const styles = StyleSheet.create({

@@ -113,7 +113,7 @@ export function DevicesScreen() {
         ))}
       </ScrollView>
 
-      <Fab onPress={() => setShowAdd(true)} />
+      <Fab onPress={() => setShowAdd(true)} coachId="devices.fab" />
       <AddDeviceModal visible={showAdd} onClose={() => setShowAdd(false)} onAdded={refetch} />
       <ShowDeviceQRModal
         visible={showQR}

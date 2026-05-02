@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { GlobalOptionsModal } from './GlobalOptionsModal';
 import { LogsModal } from './LogsModal';
 import { PhotoBackupSettings } from './PhotoBackupSettings';
@@ -13,12 +13,16 @@ import {
   StyleSheet,
   Switch,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import GoBridge from '../GoServerBridgeJSI';
 import { useSyncthing } from '../daemon/SyncthingContext';
+import { useOnboarding } from '../onboarding/useOnboarding';
+import { useCoach } from '../onboarding/coach/CoachContext';
+import { useCoachTarget } from '../onboarding/coach/useCoachTarget';
 import { useResource } from '../daemon/useResource';
 import type { SystemVersion } from '../api/types';
 import {
@@ -53,6 +57,9 @@ export function SettingsScreen() {
   const [logsOpen, setLogsOpen] = useState(false);
   const [photoBackupOpen, setPhotoBackupOpen] = useState(false);
   const [showQR, setShowQR] = useState(false);
+  const onboarding = useOnboarding();
+  const coach = useCoach();
+  const scrollRef = useRef<ScrollView | null>(null);
 
   // native side owns the truth (SharedPreferences); we mirror + write-through
   const [wifiOnly, setWifiOnly] = useState<boolean>(false);
@@ -145,6 +152,7 @@ export function SettingsScreen() {
 
   return (
     <ScrollView
+      ref={scrollRef}
       contentContainerStyle={styles.scroll}
       refreshControl={<RefreshControl refreshing={refreshing} onRefresh={refresh} tintColor={colors.textDim} />}
     >
@@ -156,6 +164,21 @@ export function SettingsScreen() {
         <Row label="Platform" value={`${Platform.OS} ${Platform.Version}`} />
         <Row label="Package" value="com.siddarthkay.syncup" mono />
       </Card>
+
+      {info && client && (
+        <Card>
+          <CardTitle>This device</CardTitle>
+          <DeviceNameRow
+            client={client}
+            selfDeviceId={info.deviceId}
+            scrollRef={scrollRef}
+          />
+          <Row label="Device ID" value={info.deviceId} mono multiline />
+          <TouchableOpacity style={styles.qrBtn} onPress={() => setShowQR(true)}>
+            <Text style={styles.qrBtnText}>Show QR for pairing</Text>
+          </TouchableOpacity>
+        </Card>
+      )}
 
       {info && (
         <Card>
@@ -206,6 +229,21 @@ export function SettingsScreen() {
               <Text style={styles.linkRowTitle}>View logs</Text>
               <Text style={styles.linkRowHint}>
                 Live tail of the daemon log
+              </Text>
+            </View>
+            <Text style={styles.linkRowArrow}>›</Text>
+          </TouchableOpacity>
+          <TouchableOpacity
+            style={styles.linkRow}
+            onPress={() => {
+              onboarding.reset();
+              coach.start();
+            }}
+          >
+            <View style={{ flex: 1 }}>
+              <Text style={styles.linkRowTitle}>Replay tour</Text>
+              <Text style={styles.linkRowHint}>
+                Walk through the guided pointer tour again
               </Text>
             </View>
             <Text style={styles.linkRowArrow}>›</Text>
@@ -392,6 +430,104 @@ export function SettingsScreen() {
   );
 }
 
+function DeviceNameRow({
+  client,
+  selfDeviceId,
+  scrollRef,
+}: {
+  client: NonNullable<ReturnType<typeof useSyncthing>['client']>;
+  selfDeviceId: string;
+  scrollRef: React.RefObject<ScrollView | null>;
+}) {
+  const target = useCoachTarget('settings.deviceName', { scrollRef });
+  const coach = useCoach();
+  const [name, setName] = useState('');
+  const [draft, setDraft] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    client
+      .devices()
+      .then(list => {
+        if (cancelled) return;
+        const self = list.find(d => d.deviceID === selfDeviceId);
+        const n = self?.name?.trim() ?? '';
+        setName(n);
+        setDraft(n);
+      })
+      .catch(e => !cancelled && setErr(e instanceof Error ? e.message : String(e)));
+    return () => {
+      cancelled = true;
+    };
+  }, [client, selfDeviceId]);
+
+  // Returns true if the row is in a "saved" state (write succeeded, or
+  // the draft already matched the persisted name and was a no-op).
+  const save = async (): Promise<boolean> => {
+    const nextName = draft.trim();
+    if (!nextName) return false;
+    if (nextName === name) return true;
+    setSaving(true);
+    setErr(null);
+    try {
+      await client.patchDevice(selfDeviceId, { name: nextName });
+      setName(nextName);
+      return true;
+    } catch (e) {
+      setErr(e instanceof Error ? e.message : String(e));
+      return false;
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const saveAndMaybeAdvance = async () => {
+    const ok = await save();
+    if (ok && coach.active && coach.step?.id === 'name') {
+      coach.next();
+    }
+  };
+
+  const dirty = draft.trim() !== name && draft.trim().length > 0;
+
+  return (
+    <View
+      ref={target.ref}
+      onLayout={target.onLayout}
+      collapsable={false}
+      style={styles.nameRow}
+    >
+      <Text style={styles.nameLabel}>Name</Text>
+      <View style={styles.nameInputRow}>
+        <TextInput
+          style={styles.nameInput}
+          value={draft}
+          onChangeText={setDraft}
+          onSubmitEditing={save}
+          onBlur={save}
+          autoCapitalize="words"
+          autoCorrect={false}
+          placeholder="My iPhone"
+          placeholderTextColor={colors.textDim}
+          returnKeyType="done"
+        />
+        {dirty && (
+          <TouchableOpacity
+            onPress={saveAndMaybeAdvance}
+            disabled={saving}
+            style={styles.nameSave}
+          >
+            <Text style={styles.nameSaveText}>{saving ? '...' : 'Save'}</Text>
+          </TouchableOpacity>
+        )}
+      </View>
+      {err && <Text style={styles.nameErr}>{err}</Text>}
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   scroll: { padding: 20, paddingTop: 16, paddingBottom: 100 },
   button: {
@@ -453,4 +589,26 @@ const styles = StyleSheet.create({
   linkRowTitle: { color: colors.text, fontSize: 14, fontWeight: '600' },
   linkRowHint: { color: colors.textDim, fontSize: 11, marginTop: 2 },
   linkRowArrow: { color: colors.textDim, fontSize: 22 },
+  nameRow: { paddingVertical: 6, marginBottom: 4 },
+  nameLabel: { color: colors.textDim, fontSize: 12, marginBottom: 4 },
+  nameInputRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  nameInput: {
+    flex: 1,
+    color: colors.text,
+    fontSize: 15,
+    backgroundColor: colors.bg,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+  },
+  nameSave: {
+    backgroundColor: colors.accent,
+    paddingHorizontal: 14,
+    paddingVertical: 10,
+    borderRadius: 8,
+  },
+  nameSaveText: { color: '#fff', fontSize: 13, fontWeight: '600' },
+  nameErr: { color: colors.error, fontSize: 12, marginTop: 6 },
 });

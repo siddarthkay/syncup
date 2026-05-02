@@ -22,6 +22,8 @@ interface Props {
   visible: boolean;
   onClose: () => void;
   onAdded: () => void;
+  /** Pre-fill the device-ID field, e.g. when called from a QR scan flow. */
+  initialDeviceId?: string;
 }
 
 interface NearbyDevice {
@@ -29,10 +31,15 @@ interface NearbyDevice {
   addresses: string[];
 }
 
-export function AddDeviceModal({ visible, onClose, onAdded }: Props) {
+export function AddDeviceModal({ visible, onClose, onAdded, initialDeviceId }: Props) {
   const client = useSyncthingClient();
-  const [deviceId, setDeviceId] = useState('');
+  const [deviceId, setDeviceId] = useState(initialDeviceId ?? '');
   const [name, setName] = useState('');
+
+  useEffect(() => {
+    // accept fresh pre-fills when reopened (e.g. successive QR scans)
+    if (visible && initialDeviceId) setDeviceId(initialDeviceId);
+  }, [visible, initialDeviceId]);
   const [autoAcceptFolders, setAutoAcceptFolders] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
