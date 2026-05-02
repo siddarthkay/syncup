@@ -25,12 +25,12 @@ import (
 )
 
 const (
-	wrapperVersion  = "v0.0.1"
-	defaultGUIAddr  = "127.0.0.1:8384"
-	configFileName  = "config.xml"
-	certFileName    = "cert.pem"
-	keyFileName     = "key.pem"
-	lockFileName    = "syncthing.lock"
+	wrapperVersion = "v0.0.1"
+	defaultGUIAddr = "127.0.0.1:8384"
+	configFileName = "config.xml"
+	certFileName   = "cert.pem"
+	keyFileName    = "key.pem"
+	lockFileName   = "syncthing.lock"
 )
 
 type Client struct {
@@ -121,6 +121,11 @@ func (c *Client) Load(configDir, dataDir string) error {
 		if conf.GUI.RawAddress == "" {
 			conf.GUI.RawAddress = defaultGUIAddr
 		}
+		// Coexist with another syncthing on the device (e.g. the deprecated
+		// syncthing-android app) by roaming off any GUI port that's already
+		// bound on loopback. We rebind on every Load so a previously-roamed
+		// port returns to 8384 once the other app is gone.
+		conf.GUI.RawAddress = pickFreeGUIAddress(conf.GUI.RawAddress)
 		if conf.GUI.APIKey == "" {
 			conf.GUI.APIKey = randomAPIKey()
 		}
@@ -335,12 +340,12 @@ func (c *Client) SetSuspended(suspended bool) error {
 }
 
 func (c *Client) APIKey() string           { return c.apiKey }
-func (c *Client) DeviceID() string          { return c.deviceID }
-func (c *Client) GUIAddress() string        { return c.guiAddress }
-func (c *Client) Port() int                 { return c.port }
-func (c *Client) DataDir() string           { return c.dataDir }
-func (c *Client) Version() string           { return build.Version }
-func (c *Client) SyncthingVersion() string  { return build.LongVersion }
+func (c *Client) DeviceID() string         { return c.deviceID }
+func (c *Client) GUIAddress() string       { return c.guiAddress }
+func (c *Client) Port() int                { return c.port }
+func (c *Client) DataDir() string          { return c.dataDir }
+func (c *Client) Version() string          { return build.Version }
+func (c *Client) SyncthingVersion() string { return build.LongVersion }
 
 // FoldersRoot is the base dir for new folders and the picker sandbox.
 // Defaults to dataDir+"/folders".
@@ -449,6 +454,45 @@ func copyFile(src, dst string) error {
 		return err
 	}
 	return dstFile.Sync()
+}
+
+// pickFreeGUIAddress returns preferred if its port is bindable, otherwise
+// scans the next 15 ports on the same host, otherwise falls back to ":0"
+// (kernel-assigned). The probe binds and immediately closes, so syncthing's
+// own listener takes the port a moment later. There could be a race condition but lets see.
+func pickFreeGUIAddress(preferred string) string {
+	host, portStr, err := net.SplitHostPort(preferred)
+	if err != nil {
+		host, portStr = "127.0.0.1", "8384"
+	}
+	basePort, err := strconv.Atoi(portStr)
+	if err != nil || basePort <= 0 {
+		basePort = 8384
+	}
+	for off := 0; off < 16; off++ {
+		candidate := net.JoinHostPort(host, strconv.Itoa(basePort+off))
+		if isBindable(candidate) {
+			return candidate
+		}
+	}
+	// Last resort: let the kernel pick. parsePort + downstream UI handle
+	// arbitrary ports fine since they read from GUIAddress().
+	ephemeral := net.JoinHostPort(host, "0")
+	if ln, err := net.Listen("tcp", ephemeral); err == nil {
+		addr := ln.Addr().String()
+		_ = ln.Close()
+		return addr
+	}
+	return preferred
+}
+
+func isBindable(addr string) bool {
+	ln, err := net.Listen("tcp", addr)
+	if err != nil {
+		return false
+	}
+	_ = ln.Close()
+	return true
 }
 
 func parsePort(addr string) int {
