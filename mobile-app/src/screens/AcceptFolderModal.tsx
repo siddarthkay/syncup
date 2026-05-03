@@ -10,6 +10,12 @@ import {
   filesystemTypeForExternal,
   pickExternalFolderWithICloudWarning,
 } from '../fs/externalFolder';
+import {
+  applyPresetToFolder,
+  presetDefaults,
+  type FolderPreset,
+} from '../utils/folderPresets';
+import { markAsVault } from '../utils/vaultRegistry';
 
 interface Props {
   visible: boolean;
@@ -29,6 +35,7 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
   const [allDevices, setAllDevices] = useState<DeviceConfig[]>([]);
   const [extraPeers, setExtraPeers] = useState<Set<string>>(new Set());
   const [folderType, setFolderType] = useState<FolderConfig['type']>('sendreceive');
+  const [preset, setPreset] = useState<FolderPreset>('generic');
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
@@ -40,6 +47,7 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
     setExtraPeers(new Set());
     // encrypted slot from the peer => receiveencrypted, else two-way
     setFolderType(offer?.receiveEncrypted ? 'receiveencrypted' : 'sendreceive');
+    setPreset('generic');
     setError(null);
     setSubmitting(false);
     client.devices().then(setAllDevices).catch(e => setError(String(e)));
@@ -107,7 +115,7 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
       ];
       const fsType = isExternal ? filesystemTypeForExternal() : 'basic';
       const usesSaf = fsType === 'saf';
-      const folder: FolderConfig = {
+      const baseFolder: FolderConfig = {
         id: offer.folderId,
         label: offer.label || offer.folderId,
         filesystemType: fsType,
@@ -135,7 +143,19 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
           fsType: 'basic',
         },
       };
+      const folder = applyPresetToFolder(baseFolder, preset, { isSaf: usesSaf });
       await client.putFolder(folder);
+      const presetIgnores = presetDefaults(preset).ignoreLines;
+      if (presetIgnores.length > 0) {
+        try {
+          await client.setIgnores(folder.id, presetIgnores);
+        } catch {
+          // best-effort
+        }
+      }
+      if (preset === 'obsidian') {
+        markAsVault(folder.id).catch(() => {});
+      }
       onAccepted();
       onClose();
     } catch (e) {
@@ -202,6 +222,22 @@ export function AcceptFolderModal({ visible, offer, onClose, onAccepted }: Props
           </TouchableOpacity>
         )}
 
+        <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Folder kind</Text>
+        <View style={styles.presetRow}>
+          <PresetChip
+            label="Generic"
+            hint="Default settings"
+            active={preset === 'generic'}
+            onPress={() => setPreset('generic')}
+          />
+          <PresetChip
+            label="Obsidian vault"
+            hint="Watcher on, vault ignores"
+            active={preset === 'obsidian'}
+            onPress={() => setPreset('obsidian')}
+          />
+        </View>
+
         <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Folder type</Text>
         <FolderTypePicker value={folderType} onChange={setFolderType} />
 
@@ -257,6 +293,30 @@ function SummaryRow({ label, value, mono }: { label: string; value: string; mono
 
 function shortDeviceId(id: string): string {
   return id.split('-').slice(0, 2).join('-') + '…';
+}
+
+function PresetChip({
+  label,
+  hint,
+  active,
+  onPress,
+}: {
+  label: string;
+  hint: string;
+  active: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[styles.presetChip, active && styles.presetChipOn]}
+      onPress={onPress}
+    >
+      <Text style={[styles.presetChipLabel, active && styles.presetChipLabelOn]}>
+        {label}
+      </Text>
+      <Text style={styles.presetChipHint}>{hint}</Text>
+    </TouchableOpacity>
+  );
 }
 
 const styles = StyleSheet.create({
@@ -338,4 +398,18 @@ const styles = StyleSheet.create({
     fontWeight: '500',
   },
   error: { color: colors.error, fontSize: 13, marginTop: 12 },
+  presetRow: { flexDirection: 'row', gap: 10 },
+  presetChip: {
+    flex: 1,
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    paddingVertical: 12,
+    paddingHorizontal: 12,
+  },
+  presetChipOn: { borderColor: colors.accent },
+  presetChipLabel: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  presetChipLabelOn: { color: colors.accent },
+  presetChipHint: { color: colors.textDim, fontSize: 11, marginTop: 4 },
 });

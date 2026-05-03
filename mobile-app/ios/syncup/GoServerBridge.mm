@@ -156,6 +156,11 @@ bool GoServerBridgeImpl::maybeNotifyFolderErrors(facebook::jsi::Runtime &rt,
                                                          sample:smp];
 }
 
+void GoServerBridgeImpl::setVaultRegistry(facebook::jsi::Runtime &rt, facebook::jsi::String json) {
+    NSString *s = [NSString stringWithUTF8String:json.utf8(rt).c_str()];
+    [GoBridgeWrapper setVaultRegistryJSON:s];
+}
+
 facebook::jsi::String GoServerBridgeImpl::pickExternalFolder(facebook::jsi::Runtime &rt) {
     NSString *result = [GoBridgeWrapper pickExternalFolder] ?: @"";
     return facebook::jsi::String::createFromUtf8(rt, [result UTF8String]);

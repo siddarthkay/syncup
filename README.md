@@ -56,6 +56,17 @@ Native UI scaffolded from
   config changes, folder state, and incoming offers reach the UI in
   about a second, instead of on a polling interval.
 
+## Obsidian users
+
+If you use Obsidian and were considering Sync ($96/yr) just for
+cross-device note syncing, SyncUp covers that case. Pick "Obsidian
+vault" when adding the folder and SyncUp configures the rescan interval,
+ignore patterns, and watcher to match how Obsidian writes files. Apply
+the preset retroactively from the folder detail screen if `.obsidian/`
+is detected. Conflicts on `.md` files get a 3-way merge view.
+
+Setup guide: [docs/OBSIDIAN.md](docs/OBSIDIAN.md).
+
 ## Status
 
 The first real milestone was an iOS simulator, an Android emulator, and

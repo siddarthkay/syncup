@@ -26,6 +26,8 @@
 @end
 
 static NSString * const kNotifiedErrorCountsKey = @"com.siddarthkay.syncup.notifiedErrorCounts";
+static NSString * const kVaultRegistryKey = @"com.siddarthkay.syncup.vaultRegistry";
+static NSString * const kNotifiedVaultStaleKey = @"com.siddarthkay.syncup.notifiedVaultStale";
 
 @interface GoBridgeWrapper ()
 + (void)deliverNotificationTitle:(NSString *)title body:(NSString *)body;
@@ -352,6 +354,75 @@ static Class GobridgeMobileAPIClass;
   UNNotificationRequest *request =
       [UNNotificationRequest requestWithIdentifier:identifier content:content trigger:nil];
   [[UNUserNotificationCenter currentNotificationCenter] addNotificationRequest:request withCompletionHandler:nil];
+}
+
+// Persisted by JS each time the vault registry changes. Stored as the raw
+// JSON string so the next read-side parse produces a fresh dict (avoids
+// stale Foundation collection state if NSUserDefaults caches).
++ (void)setVaultRegistryJSON:(NSString *)json {
+  [[NSUserDefaults standardUserDefaults] setObject:(json ?: @"") forKey:kVaultRegistryKey];
+}
+
++ (nullable NSDictionary *)vaultRegistry {
+  NSString *json = [[NSUserDefaults standardUserDefaults] stringForKey:kVaultRegistryKey];
+  if (json.length == 0) return nil;
+  NSData *data = [json dataUsingEncoding:NSUTF8StringEncoding];
+  if (!data) return nil;
+  id parsed = [NSJSONSerialization JSONObjectWithData:data options:0 error:nil];
+  return [parsed isKindOfClass:[NSDictionary class]] ? (NSDictionary *)parsed : nil;
+}
+
+// Same dedup pattern as folder-error notifies. Key the high-water mark on
+// the lastSync timestamp itself: a fresh sync writes a newer ms value, so
+// the next stale window will compare unequal and re-fire.
++ (BOOL)maybeNotifyVaultStaleWithFolderId:(NSString *)folderId
+                                    label:(NSString *)label
+                                lastSyncMs:(int64_t)lastSyncMs
+                                  ageMins:(NSInteger)ageMins {
+  if (folderId.length == 0) return NO;
+
+  @synchronized (self) {
+    NSDictionary<NSString *, NSNumber *> *existing =
+        [[NSUserDefaults standardUserDefaults] dictionaryForKey:kNotifiedVaultStaleKey]
+            ?: @{};
+    int64_t lastNotifiedFor = [existing[folderId] longLongValue];
+    if (lastNotifiedFor == lastSyncMs) {
+      return NO;
+    }
+    NSMutableDictionary *next = [existing mutableCopy];
+    next[folderId] = @(lastSyncMs);
+    [[NSUserDefaults standardUserDefaults] setObject:next forKey:kNotifiedVaultStaleKey];
+  }
+
+  NSString *title = [NSString stringWithFormat:@"Vault \"%@\" hasn't synced", label.length > 0 ? label : folderId];
+  NSString *body;
+  if (ageMins < 60) {
+    body = [NSString stringWithFormat:@"Last synced %ld min ago. Open SyncUp to catch up.", (long)ageMins];
+  } else if (ageMins < 60 * 24) {
+    body = [NSString stringWithFormat:@"Last synced %ldh ago. Open SyncUp to catch up.", (long)(ageMins / 60)];
+  } else {
+    body = [NSString stringWithFormat:@"Last synced %ld days ago. Open SyncUp to catch up.", (long)(ageMins / (60 * 24))];
+  }
+
+  // Reuse the permission/delivery pipeline used by folder-error notifies.
+  UNUserNotificationCenter *center = [UNUserNotificationCenter currentNotificationCenter];
+  [center getNotificationSettingsWithCompletionHandler:^(UNNotificationSettings * _Nonnull settings) {
+    if (settings.authorizationStatus == UNAuthorizationStatusNotDetermined) {
+      UNAuthorizationOptions opts =
+          UNAuthorizationOptionAlert | UNAuthorizationOptionSound | UNAuthorizationOptionBadge;
+      [center requestAuthorizationWithOptions:opts completionHandler:^(BOOL granted, NSError * _Nullable error) {
+        if (granted) {
+          [self deliverNotificationTitle:title body:body];
+        }
+      }];
+      return;
+    }
+    if (settings.authorizationStatus == UNAuthorizationStatusAuthorized ||
+        settings.authorizationStatus == UNAuthorizationStatusProvisional) {
+      [self deliverNotificationTitle:title body:body];
+    }
+  }];
+  return YES;
 }
 
 + (NSString *)pickExternalFolder {

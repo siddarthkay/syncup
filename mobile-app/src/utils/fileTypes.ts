@@ -66,3 +66,9 @@ export function kindIconName(kind: FileKind, isDir: boolean): string {
 export function isConflict(name: string): boolean {
   return /\.sync-conflict-\d{8}-\d{6}-[A-Z0-9]+/.test(name);
 }
+
+const MARKDOWN_EXTS = new Set(['md', 'markdown', 'mdx']);
+
+export function isMarkdown(name: string): boolean {
+  return MARKDOWN_EXTS.has(fileExt(name));
+}

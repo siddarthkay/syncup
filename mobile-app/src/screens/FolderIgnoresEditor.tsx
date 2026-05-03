@@ -11,6 +11,7 @@ import {
 } from 'react-native';
 import { useSyncthingClient } from '../daemon/SyncthingContext';
 import { colors } from '../components/ui';
+import { IGNORE_PRESETS, type IgnorePreset } from '../utils/folderPresets';
 
 interface Props {
   folderId: string;
@@ -30,6 +31,7 @@ export function FolderIgnoresEditor({ folderId, folderLabel, onBack, onSaved }: 
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [presetMenuOpen, setPresetMenuOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -69,6 +71,23 @@ export function FolderIgnoresEditor({ folderId, folderLabel, onBack, onSaved }: 
     } finally {
       setSaving(false);
     }
+  };
+
+  const appendPreset = (preset: IgnorePreset) => {
+    setPresetMenuOpen(false);
+    const existing = new Set(
+      text.split('\n').map(l => l.trim()).filter(l => l.length > 0),
+    );
+    const toAdd = preset.lines.filter(l => !existing.has(l.trim()));
+    if (toAdd.length === 0) {
+      Alert.alert(
+        'Already applied',
+        'Every line from this preset is already in your ignore list.',
+      );
+      return;
+    }
+    const sep = text.length > 0 && !text.endsWith('\n') ? '\n' : '';
+    setText(text + sep + toAdd.join('\n') + '\n');
   };
 
   const cancel = () => {
@@ -111,6 +130,33 @@ export function FolderIgnoresEditor({ folderId, folderLabel, onBack, onSaved }: 
       ) : (
         <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
           {error && <Text style={styles.error}>{error}</Text>}
+
+          <View style={styles.presetBar}>
+            <Text style={styles.presetBarLabel}>Presets</Text>
+            <TouchableOpacity
+              style={styles.presetBarBtn}
+              onPress={() => setPresetMenuOpen(v => !v)}
+            >
+              <Text style={styles.presetBarBtnText}>
+                {presetMenuOpen ? 'Close' : 'Add preset…'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+          {presetMenuOpen && (
+            <View style={styles.presetMenu}>
+              {IGNORE_PRESETS.map(p => (
+                <TouchableOpacity
+                  key={p.id}
+                  style={styles.presetItem}
+                  onPress={() => appendPreset(p)}
+                >
+                  <Text style={styles.presetItemLabel}>{p.label}</Text>
+                  <Text style={styles.presetItemHint}>{p.description}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          )}
+
           <TextInput
             style={styles.editor}
             value={text}
@@ -207,4 +253,41 @@ const styles = StyleSheet.create({
   },
   helpLine: { color: colors.textDim, fontSize: 12, lineHeight: 17 },
   mono: { fontFamily: 'Menlo', color: colors.text },
+  presetBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  presetBarLabel: {
+    color: colors.textDim,
+    fontSize: 11,
+    fontWeight: '600',
+    letterSpacing: 0.8,
+    textTransform: 'uppercase',
+  },
+  presetBarBtn: {
+    paddingVertical: 6,
+    paddingHorizontal: 10,
+    borderRadius: 6,
+    borderWidth: 1,
+    borderColor: colors.border,
+  },
+  presetBarBtnText: { color: colors.accent, fontSize: 13, fontWeight: '500' },
+  presetMenu: {
+    backgroundColor: colors.card,
+    borderRadius: 10,
+    borderWidth: 1,
+    borderColor: colors.border,
+    marginBottom: 12,
+    overflow: 'hidden',
+  },
+  presetItem: {
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    borderBottomWidth: StyleSheet.hairlineWidth,
+    borderBottomColor: colors.border,
+  },
+  presetItemLabel: { color: colors.text, fontSize: 14, fontWeight: '600' },
+  presetItemHint: { color: colors.textDim, fontSize: 11, marginTop: 2, lineHeight: 15 },
 });

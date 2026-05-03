@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
+  Linking,
   Modal,
   Platform,
   ScrollView,
@@ -36,6 +37,14 @@ import {
   enableSelective,
   disableSelective,
 } from '../utils/selectiveSync';
+import {
+  applyPresetToFolder,
+  presetDefaults,
+  isObsidianMarker,
+} from '../utils/folderPresets';
+import { forgetFolder, loadVaults, markAsVault } from '../utils/vaultRegistry';
+
+const OBSIDIAN_PRESET_TAG = '// SyncUp Obsidian preset';
 
 type Page = 'main' | 'ignores' | 'advanced' | 'versioning' | 'browse' | 'conflicts' | 'statistics' | 'sharing';
 
@@ -89,6 +98,10 @@ export function FolderDetailModal({
   const [encryptionPasswords, setEncryptionPasswords] = useState<Record<string, string>>({});
   const [externalAccessValid, setExternalAccessValid] = useState(true);
   const [page, setPage] = useState<Page>('main');
+  const [vaultDetected, setVaultDetected] = useState(false);
+  const [presetApplied, setPresetApplied] = useState(false);
+  const [obsidianInstalled, setObsidianInstalled] = useState(false);
+  const [isRegisteredVault, setIsRegisteredVault] = useState(false);
 
   const foldersRoot = info?.foldersRoot ?? '';
   const isExternal = useMemo(
@@ -125,12 +138,34 @@ export function FolderDetailModal({
         setIgnoreCount(lines.filter(l => l.trim().length > 0).length);
         setIsSelective(isSelectiveIgnoreList(lines));
         setSelectedPathCount(getSelectedPaths(lines).length);
+        setPresetApplied(lines.some(l => l.trim() === OBSIDIAN_PRESET_TAG));
       })
       .catch(() => {
         setIgnoreCount(null);
         setIsSelective(false);
         setSelectedPathCount(0);
+        setPresetApplied(false);
       });
+    setVaultDetected(false);
+    setIsRegisteredVault(false);
+    const folderId = folder.id;
+    loadVaults()
+      .then(set => setIsRegisteredVault(set.has(folderId)))
+      .catch(() => setIsRegisteredVault(false));
+    client
+      .dbBrowse(folderId, '', 1)
+      .then(entries => {
+        const detected = entries.some(e => isObsidianMarker(e.name));
+        setVaultDetected(detected);
+        if (detected) {
+          markAsVault(folderId).catch(() => {});
+          setIsRegisteredVault(true);
+        }
+      })
+      .catch(() => setVaultDetected(false));
+    Linking.canOpenURL('obsidian://')
+      .then(setObsidianInstalled)
+      .catch(() => setObsidianInstalled(false));
   }, [visible, folder, client, foldersRoot]);
 
   const peers = useMemo(
@@ -173,6 +208,62 @@ export function FolderDetailModal({
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setBusy(false);
+    }
+  };
+
+  const applyObsidianPreset = async () => {
+    if (!folder) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const isSaf = folder.filesystemType === 'saf';
+      const next = applyPresetToFolder(folder, 'obsidian', { isSaf });
+      const patch: Partial<FolderConfig> = {
+        rescanIntervalS: next.rescanIntervalS,
+        fsWatcherEnabled: next.fsWatcherEnabled,
+        fsWatcherDelayS: next.fsWatcherDelayS,
+        ignorePerms: next.ignorePerms,
+      };
+      await client.patchFolder(folder.id, patch);
+      const presetLines = presetDefaults('obsidian').ignoreLines;
+      const current = await client.getIgnores(folder.id);
+      // Append, don't replace — user may have hand-tuned ignores already.
+      const existing = new Set(current.map(l => l.trim()));
+      const merged = [...current, ...presetLines.filter(l => !existing.has(l.trim()))];
+      await client.setIgnores(folder.id, merged);
+      setPresetApplied(true);
+      setIgnoreCount(merged.filter(l => l.trim().length > 0).length);
+      markAsVault(folder.id).catch(() => {});
+      setIsRegisteredVault(true);
+      // Kick the daemon so the new ignores and watcher kick in now,
+      // not at the next 30s tick.
+      try {
+        await client.scanFolder(folder.id);
+      } catch {
+        // best-effort
+      }
+      onChanged();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openInObsidian = async () => {
+    if (!folder) return;
+    // Vault name = folder label (or id, as a fallback). Obsidian only matches
+    // vaults it already has registered. If it doesn't recognise the name, the
+    // app opens to its vault picker — still better than nothing.
+    const vaultName = (folder.label || folder.id).trim();
+    const url = `obsidian://open?vault=${encodeURIComponent(vaultName)}`;
+    try {
+      await Linking.openURL(url);
+    } catch (e) {
+      Alert.alert(
+        'Could not open Obsidian',
+        e instanceof Error ? e.message : String(e),
+      );
     }
   };
 
@@ -265,6 +356,7 @@ export function FolderDetailModal({
     try {
       // unlink first so the daemon releases handles before we touch the files
       await client.deleteFolder(folder.id);
+      forgetFolder(folder.id).catch(() => {});
       if (alsoRemoveFiles) {
         try {
           removeDir(folder.path);
@@ -479,8 +571,35 @@ export function FolderDetailModal({
           <ScrollView contentContainerStyle={styles.body}>
             {error && <Text style={styles.error}>{error}</Text>}
 
+            {vaultDetected && !presetApplied && (
+              <View style={styles.vaultBanner}>
+                <View style={{ flex: 1, paddingRight: 12 }}>
+                  <Text style={styles.vaultBannerTitle}>Obsidian vault detected</Text>
+                  <Text style={styles.vaultBannerHint}>
+                    Apply the preset to ignore Obsidian's per-device workspace files and tighten the rescan interval.
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.vaultBannerBtn}
+                  onPress={applyObsidianPreset}
+                  disabled={busy}
+                >
+                  <Text style={styles.vaultBannerBtnText}>
+                    {busy ? '…' : 'Apply'}
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            )}
+
             <View style={styles.card}>
-              <Text style={styles.cardTitle}>Info</Text>
+              <View style={styles.cardTitleRow}>
+                <Text style={styles.cardTitle}>Info</Text>
+                {isRegisteredVault && (
+                  <View style={styles.vaultChip}>
+                    <Text style={styles.vaultChipText}>Obsidian vault</Text>
+                  </View>
+                )}
+              </View>
               <Row label="ID" value={folder.id} mono />
               <Row
                 label="Path"
@@ -573,6 +692,19 @@ export function FolderDetailModal({
               </View>
               <Text style={styles.browseArrow}>›</Text>
             </TouchableOpacity>
+
+            {vaultDetected && obsidianInstalled && (
+              <TouchableOpacity style={styles.browseBtn} onPress={openInObsidian}>
+                <Icon name="document-text" size={22} color={colors.accent} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.browseTitle}>Open in Obsidian</Text>
+                  <Text style={styles.browseHint}>
+                    Launches the Obsidian app at this vault
+                  </Text>
+                </View>
+                <Text style={styles.browseArrow}>›</Text>
+              </TouchableOpacity>
+            )}
 
             <TouchableOpacity style={styles.browseBtn} onPress={() => setPage('statistics')}>
               <Icon name="bar-chart" size={22} color={colors.accent} />
@@ -1061,4 +1193,42 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   error: { color: colors.error, fontSize: 13, marginBottom: 12 },
+  cardTitleRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+  },
+  vaultChip: {
+    backgroundColor: colors.bg,
+    borderRadius: 12,
+    paddingVertical: 4,
+    paddingHorizontal: 10,
+    borderWidth: 1,
+    borderColor: colors.accent,
+  },
+  vaultChipText: {
+    color: colors.accent,
+    fontSize: 11,
+    fontWeight: '600',
+  },
+  vaultBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.accent,
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 12,
+  },
+  vaultBannerTitle: { color: colors.accent, fontSize: 14, fontWeight: '600' },
+  vaultBannerHint: { color: colors.textDim, fontSize: 11, marginTop: 4, lineHeight: 15 },
+  vaultBannerBtn: {
+    backgroundColor: colors.accent,
+    borderRadius: 8,
+    paddingVertical: 8,
+    paddingHorizontal: 16,
+  },
+  vaultBannerBtnText: { color: '#fff', fontSize: 13, fontWeight: '600' },
 });

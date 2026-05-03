@@ -33,6 +33,23 @@
                                       label:(NSString *)label
                                      sample:(NSString *)sample;
 
+/// Persist the JS-side vault registry so the BG task can detect stale vaults
+/// without going through AsyncStorage. JSON shape:
+///   { "vaults": ["<folderId>", ...], "lastSyncs": { "<folderId>": <epochMs>, ... } }
++ (void)setVaultRegistryJSON:(NSString *)json;
+
+/// Returns @{ @"vaults": NSArray<NSString*>, @"lastSyncs": NSDictionary<NSString*,NSNumber*> }
+/// or nil if nothing has been persisted yet.
++ (nullable NSDictionary *)vaultRegistry;
+
+/// Deduped vault-stale notify. Posts only once per (folderId, lastSyncMs)
+/// pair: a fresh sync resets the dedup state, then we re-fire if it goes
+/// stale again. Compare-and-store is @synchronized.
++ (BOOL)maybeNotifyVaultStaleWithFolderId:(NSString *)folderId
+                                    label:(NSString *)label
+                                lastSyncMs:(int64_t)lastSyncMs
+                                  ageMins:(NSInteger)ageMins;
+
 /// Block-the-JS-thread folder picker. Returns JSON describing the picked
 /// folder, or empty string on cancel. iOS-only; Android renames pickSafFolder
 /// to this and keeps its existing return shape (now JSON).
