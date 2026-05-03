@@ -32,6 +32,7 @@ public:
     bool getAllowMobileData(facebook::jsi::Runtime &rt);
     bool setAllowMobileData(facebook::jsi::Runtime &rt, bool enabled);
     bool openBatteryOptimizationSettings(facebook::jsi::Runtime &rt);
+    bool isIgnoringBatteryOptimizations(facebook::jsi::Runtime &rt);
     bool openFolderInFileManager(facebook::jsi::Runtime &rt, facebook::jsi::String path);
     facebook::jsi::String getFoldersRoot(facebook::jsi::Runtime &rt);
     bool setFoldersRoot(facebook::jsi::Runtime &rt, facebook::jsi::String path);

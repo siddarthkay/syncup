@@ -21,6 +21,7 @@
 + (BOOL)getChargingOnlySync;
 + (BOOL)setChargingOnlySync:(BOOL)enabled;
 + (BOOL)openBatteryOptimizationSettings;
++ (BOOL)isIgnoringBatteryOptimizations;
 + (BOOL)openFolderInFileManager:(NSString *)path;
 + (NSString *)getFoldersRoot;
 + (BOOL)setFoldersRoot:(NSString *)path;

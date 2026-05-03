@@ -122,6 +122,10 @@ bool GoServerBridgeImpl::openBatteryOptimizationSettings(facebook::jsi::Runtime 
     return [GoBridgeWrapper openBatteryOptimizationSettings];
 }
 
+bool GoServerBridgeImpl::isIgnoringBatteryOptimizations(facebook::jsi::Runtime &rt) {
+    return [GoBridgeWrapper isIgnoringBatteryOptimizations];
+}
+
 bool GoServerBridgeImpl::openFolderInFileManager(facebook::jsi::Runtime &rt, facebook::jsi::String path) {
     NSString *p = [NSString stringWithUTF8String:path.utf8(rt).c_str()];
     return [GoBridgeWrapper openFolderInFileManager:p];

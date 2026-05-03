@@ -25,6 +25,7 @@ export interface Spec extends TurboModule {
   readonly getAllowMobileData: () => boolean;
   readonly setAllowMobileData: (enabled: boolean) => boolean;
   readonly openBatteryOptimizationSettings: () => boolean;
+  readonly isIgnoringBatteryOptimizations: () => boolean;
   readonly openFolderInFileManager: (path: string) => boolean;
   readonly getFoldersRoot: () => string;
   readonly setFoldersRoot: (path: string) => boolean;

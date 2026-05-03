@@ -5,6 +5,7 @@ import { PhotoBackupSettings } from './PhotoBackupSettings';
 import { ShowDeviceQRModal } from './ShowDeviceQRModal';
 import {
   Alert,
+  AppState,
   Linking,
   Modal,
   Platform,
@@ -66,6 +67,7 @@ export function SettingsScreen() {
   const [chargingOnly, setChargingOnly] = useState<boolean>(false);
   const [allowMetered, setAllowMetered] = useState<boolean>(false);
   const [allowMobile, setAllowMobile] = useState<boolean>(false);
+  const [batteryExempt, setBatteryExempt] = useState<boolean>(false);
   useEffect(() => {
     try {
       setWifiOnly(GoBridge.getWifiOnlySync());
@@ -76,6 +78,23 @@ export function SettingsScreen() {
       // ignore - stays false
     }
   }, []);
+
+  const refreshBatteryExempt = useCallback(() => {
+    if (!isAndroid) return;
+    try {
+      setBatteryExempt(GoBridge.isIgnoringBatteryOptimizations());
+    } catch {
+      setBatteryExempt(false);
+    }
+  }, [isAndroid]);
+
+  useEffect(() => {
+    refreshBatteryExempt();
+    const sub = AppState.addEventListener('change', s => {
+      if (s === 'active') refreshBatteryExempt();
+    });
+    return () => sub.remove();
+  }, [refreshBatteryExempt]);
 
   const toggleWifiOnly = (value: boolean) => {
     setWifiOnly(value);
@@ -320,7 +339,7 @@ export function SettingsScreen() {
           )}
         </Card>
 
-      {isAndroid && (
+      {isAndroid && !batteryExempt && (
         <Card>
           <CardTitle>Power</CardTitle>
           <Text style={styles.aboutText}>

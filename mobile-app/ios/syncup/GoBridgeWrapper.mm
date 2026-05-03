@@ -253,6 +253,7 @@ static Class GobridgeMobileAPIClass;
 + (BOOL)getChargingOnlySync { return NO; }
 + (BOOL)setChargingOnlySync:(BOOL)enabled { return NO; }
 + (BOOL)openBatteryOptimizationSettings { return NO; }
++ (BOOL)isIgnoringBatteryOptimizations { return YES; }
 + (BOOL)openFolderInFileManager:(NSString *)path { return NO; }
 
 + (NSString *)getFoldersRoot {

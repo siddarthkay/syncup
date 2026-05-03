@@ -24,6 +24,7 @@ export interface GoServerBridgeInterface {
   getAllowMobileData(): boolean;
   setAllowMobileData(enabled: boolean): boolean;
   openBatteryOptimizationSettings(): boolean;
+  isIgnoringBatteryOptimizations(): boolean;
   openFolderInFileManager(path: string): boolean;
   getFoldersRoot(): string;
   setFoldersRoot(path: string): boolean;
@@ -133,6 +134,10 @@ class GoServerBridgeJSI implements GoServerBridgeInterface {
 
   openBatteryOptimizationSettings(): boolean {
     return NativeGoServerBridge.openBatteryOptimizationSettings();
+  }
+
+  isIgnoringBatteryOptimizations(): boolean {
+    return NativeGoServerBridge.isIgnoringBatteryOptimizations();
   }
 
   openFolderInFileManager(path: string): boolean {

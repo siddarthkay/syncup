@@ -213,13 +213,34 @@ class GoServerBridgeModule(reactContext: ReactApplicationContext) :
         return true
     }
 
-    override fun openBatteryOptimizationSettings(): Boolean {
+    override fun isIgnoringBatteryOptimizations(): Boolean {
         return try {
-            val intent = android.content.Intent(
+            val pm = ctx.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+            pm.isIgnoringBatteryOptimizations(ctx.packageName)
+        } catch (e: Exception) {
+            android.util.Log.w(NAME, "isIgnoringBatteryOptimizations failed", e)
+            false
+        }
+    }
+
+    override fun openBatteryOptimizationSettings(): Boolean {
+        val pkgUri = android.net.Uri.parse("package:" + ctx.packageName)
+        val direct = android.content.Intent(
+            android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS,
+            pkgUri
+        ).apply { flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK }
+        try {
+            ctx.startActivity(direct)
+            return true
+        } catch (e: Exception) {
+            android.util.Log.w(NAME, "ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS unavailable, falling back", e)
+        }
+        return try {
+            val fallback = android.content.Intent(
                 android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
             )
-            intent.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-            ctx.startActivity(intent)
+            fallback.flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            ctx.startActivity(fallback)
             true
         } catch (e: Exception) {
             android.util.Log.e(NAME, "openBatteryOptimizationSettings failed", e)
