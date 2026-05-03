@@ -14,9 +14,10 @@ import * as Haptics from 'expo-haptics';
 import { useSyncthingClient } from '../daemon/SyncthingContext';
 import type { FolderConfig, TreeEntry } from '../api/types';
 import { colors, formatBytes } from '../components/ui';
-import { fileKind, kindIconName, isConflict } from '../utils/fileTypes';
+import { fileKind, kindIconName, isConflict, isMarkdown } from '../utils/fileTypes';
 import { Icon } from '../components/Icon';
 import { FilePreviewModal } from './FilePreviewModal';
+import { MarkdownMergeView } from './MarkdownMergeView';
 
 interface Props {
   folder: FolderConfig;
@@ -53,6 +54,10 @@ export function ConflictResolver({ folder, onBack, onChanged }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [preview, setPreview] = useState<{ path: string; entry: TreeEntry } | null>(null);
+  const [mergeTarget, setMergeTarget] = useState<{
+    group: ConflictGroup;
+    copy: { path: string; entry: TreeEntry };
+  } | null>(null);
 
   const scan = useCallback(async () => {
     setLoading(true);
@@ -155,6 +160,31 @@ export function ConflictResolver({ folder, onBack, onChanged }: Props) {
     setTimeout(() => scan(), 300);
   };
 
+  const saveMerged = async (
+    group: ConflictGroup,
+    copy: { path: string; entry: TreeEntry },
+    mergedText: string,
+  ) => {
+    const origUri = onDiskUri(folder.path, group.originalPath);
+    const copyUri = onDiskUri(folder.path, copy.path);
+    try {
+      await FileSystem.writeAsStringAsync(origUri, mergedText);
+      await FileSystem.deleteAsync(copyUri, { idempotent: true });
+    } catch (e) {
+      Alert.alert('Save failed', e instanceof Error ? e.message : String(e));
+      return;
+    }
+    try {
+      await client.scanFolder(folder.id);
+    } catch {
+      // watcher will catch up
+    }
+    Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success).catch(() => {});
+    setMergeTarget(null);
+    onChanged();
+    setTimeout(() => scan(), 300);
+  };
+
   const confirmKeep = (group: ConflictGroup, keepPath: string, label: string) => {
     const deleteCount =
       group.copies.length + (group.original ? 1 : 0) - 1;
@@ -203,6 +233,19 @@ export function ConflictResolver({ folder, onBack, onChanged }: Props) {
   };
 
   const totalConflicts = groups.reduce((n, g) => n + g.copies.length, 0);
+
+  if (mergeTarget) {
+    return (
+      <MarkdownMergeView
+        originalUri={onDiskUri(folder.path, mergeTarget.group.originalPath)}
+        originalName={mergeTarget.group.originalName}
+        copyUri={onDiskUri(folder.path, mergeTarget.copy.path)}
+        copyLabel={conflictLabel(mergeTarget.copy.entry.name)}
+        onCancel={() => setMergeTarget(null)}
+        onSave={text => saveMerged(mergeTarget.group, mergeTarget.copy, text)}
+      />
+    );
+  }
 
   return (
     <View style={styles.container}>
@@ -269,20 +312,25 @@ export function ConflictResolver({ folder, onBack, onChanged }: Props) {
                 />
               )}
 
-              {group.copies.map(c => (
-                <VersionRow
-                  key={c.path}
-                  label={conflictLabel(c.entry.name)}
-                  entry={c.entry}
-                  path={c.path}
-                  folder={folder}
-                  onPreview={() => setPreview(c)}
-                  onKeep={() =>
-                    confirmKeep(group, c.path, conflictLabel(c.entry.name))
-                  }
-                  keepLabel="Keep this version"
-                />
-              ))}
+              {group.copies.map(c => {
+                const canMerge =
+                  group.original !== null && isMarkdown(group.originalName);
+                return (
+                  <VersionRow
+                    key={c.path}
+                    label={conflictLabel(c.entry.name)}
+                    entry={c.entry}
+                    path={c.path}
+                    folder={folder}
+                    onPreview={() => setPreview(c)}
+                    onKeep={() =>
+                      confirmKeep(group, c.path, conflictLabel(c.entry.name))
+                    }
+                    keepLabel="Keep this version"
+                    onMerge={canMerge ? () => setMergeTarget({ group, copy: c }) : undefined}
+                  />
+                );
+              })}
             </View>
           )}
         />
@@ -309,6 +357,7 @@ function VersionRow({
   onPreview,
   onKeep,
   keepLabel,
+  onMerge,
 }: {
   label: string;
   entry: TreeEntry;
@@ -317,6 +366,7 @@ function VersionRow({
   onPreview: () => void;
   onKeep: () => void;
   keepLabel: string;
+  onMerge?: () => void;
 }) {
   const kind = fileKind(entry.name);
   const uri = onDiskUri(folder.path, path);
@@ -339,9 +389,16 @@ function VersionRow({
           </Text>
         </View>
       </TouchableOpacity>
-      <TouchableOpacity style={styles.keepBtn} onPress={onKeep}>
-        <Text style={styles.keepBtnText}>{keepLabel}</Text>
-      </TouchableOpacity>
+      <View style={styles.actionsRow}>
+        {onMerge && (
+          <TouchableOpacity style={styles.mergeBtn} onPress={onMerge}>
+            <Text style={styles.mergeBtnText}>Merge…</Text>
+          </TouchableOpacity>
+        )}
+        <TouchableOpacity style={styles.keepBtn} onPress={onKeep}>
+          <Text style={styles.keepBtnText}>{keepLabel}</Text>
+        </TouchableOpacity>
+      </View>
     </View>
   );
 }
@@ -452,7 +509,6 @@ const styles = StyleSheet.create({
   versionLabel: { color: colors.text, fontSize: 13, fontWeight: '500' },
   versionMeta: { color: colors.textDim, fontSize: 11, marginTop: 2 },
   keepBtn: {
-    alignSelf: 'flex-end',
     paddingHorizontal: 12,
     paddingVertical: 8,
     borderRadius: 8,
@@ -460,4 +516,16 @@ const styles = StyleSheet.create({
     borderColor: colors.accent,
   },
   keepBtnText: { color: colors.accent, fontSize: 12, fontWeight: '600' },
+  actionsRow: {
+    flexDirection: 'row',
+    gap: 8,
+    alignSelf: 'flex-end',
+  },
+  mergeBtn: {
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    backgroundColor: colors.accent,
+  },
+  mergeBtnText: { color: '#fff', fontSize: 12, fontWeight: '600' },
 });

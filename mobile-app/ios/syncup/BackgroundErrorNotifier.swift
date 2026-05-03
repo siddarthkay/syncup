@@ -8,6 +8,10 @@ import UserNotifications
     private static let httpTimeout: TimeInterval = 5
     private static let semaphoreBudget: TimeInterval = 6
 
+    // Mirror of VAULT_STALE_THRESHOLD_MS in mobile-app/src/utils/vaultRegistry.ts.
+    // If you change one, change the other.
+    private static let vaultStaleThresholdMs: Int64 = 60 * 60 * 1000
+
     /// Safe from main. HTTP work hops to a utility queue so the BG handler's budget watchdog keeps running.
     @objc static func check() {
         DispatchQueue.global(qos: .utility).async {
@@ -44,6 +48,37 @@ import UserNotifications
                 count: result.count,
                 label: folder.label,
                 sample: result.sample
+            )
+        }
+
+        // Vault watchdog: if the JS side has registered any folders as
+        // Obsidian vaults and recorded a last-sync time, fire a local
+        // notification when that time crosses the stale threshold.
+        checkStaleVaults(folders: folders)
+    }
+
+    private static func checkStaleVaults(folders: [FolderInfo]) {
+        guard let registry = GoBridgeWrapper.vaultRegistry() else { return }
+        guard let vaultIds = registry["vaults"] as? [String], !vaultIds.isEmpty else { return }
+        let lastSyncs = (registry["lastSyncs"] as? [String: NSNumber]) ?? [:]
+        let nowMs = Int64(Date().timeIntervalSince1970 * 1000)
+        let labelById: [String: String] = Dictionary(uniqueKeysWithValues: folders.map { ($0.id, $0.label) })
+
+        for folderId in vaultIds {
+            guard let lastSyncNum = lastSyncs[folderId] else {
+                // Never recorded a sync — no baseline, nothing to alert on.
+                continue
+            }
+            let lastSyncMs = lastSyncNum.int64Value
+            let ageMs = nowMs - lastSyncMs
+            if ageMs <= vaultStaleThresholdMs { continue }
+            let ageMins = Int(ageMs / 60_000)
+            let label = labelById[folderId] ?? folderId
+            _ = GoBridgeWrapper.maybeNotifyVaultStale(
+                withFolderId: folderId,
+                label: label,
+                lastSyncMs: lastSyncMs,
+                ageMins: ageMins
             )
         }
     }

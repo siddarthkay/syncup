@@ -34,6 +34,7 @@ export interface GoServerBridgeInterface {
     label: string,
     sampleError: string,
   ): boolean;
+  setVaultRegistry(json: string): void;
   pickExternalFolder(): string;
   getPersistedExternalFolders(): string;
   revokeExternalFolder(path: string): boolean;
@@ -165,6 +166,11 @@ class GoServerBridgeJSI implements GoServerBridgeInterface {
       sampleError,
     );
   }
+
+  setVaultRegistry(json: string): void {
+    NativeGoServerBridge.setVaultRegistry(json);
+  }
+
   pickExternalFolder(): string {
     return NativeGoServerBridge.pickExternalFolder();
   }

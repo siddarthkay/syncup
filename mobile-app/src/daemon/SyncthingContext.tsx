@@ -80,6 +80,10 @@ export function SyncthingProvider({ children }: { children: React.ReactNode }) {
     if (startedRef.current) return;
     startedRef.current = true;
     start();
+    // Mirror the AsyncStorage-backed vault registry to native UserDefaults
+    // once on launch. Fixes the case where the app updates and native is
+    // ahead/behind the JS-side persisted state.
+    void import('../utils/vaultRegistry').then(m => m.pushRegistryToNative());
   }, [start]);
 
   const client = useMemo(() => {

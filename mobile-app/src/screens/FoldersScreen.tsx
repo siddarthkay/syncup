@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import {
   Alert,
   RefreshControl,
@@ -25,12 +25,21 @@ import { AddFolderModal } from './AddFolderModal';
 import { FolderDetailModal } from './FolderDetailModal';
 import { AcceptFolderModal } from './AcceptFolderModal';
 import { QuickCaptureModal } from './QuickCaptureModal';
+import {
+  formatRelativeTime,
+  isStale,
+  loadLastSyncs,
+  loadVaults,
+  recordSync,
+} from '../utils/vaultRegistry';
 
 interface FolderView {
   config: FolderConfig;
   status: DbStatus | null;
   error: string | null;
   errors: FolderError[];
+  isVault: boolean;
+  lastSyncMs: number | null;
 }
 
 interface FoldersPayload {
@@ -65,10 +74,13 @@ export function FoldersScreen() {
   const [acceptOffer, setAcceptOffer] = useState<PendingFolderOffer | null>(null);
 
   const fetcher = useCallback(async (): Promise<FoldersPayload> => {
-    const [folders, offers] = await Promise.all([
+    const [folders, offers, vaults, lastSyncs] = await Promise.all([
       client.folders(),
       client.pendingFolders().catch(() => [] as PendingFolderOffer[]),
+      loadVaults().catch(() => new Set<string>()),
+      loadLastSyncs().catch(() => ({} as Record<string, number>)),
     ]);
+    const now = Date.now();
     const folderViews = await Promise.all(
       folders.map(async (f): Promise<FolderView> => {
         let status: DbStatus | null = null;
@@ -87,7 +99,22 @@ export function FoldersScreen() {
             // pill still says "error" even if we can't list the files
           }
         }
-        return { config: f, status, error: fetchError, errors };
+        const isVault = vaults.has(f.id);
+        let lastSyncMs = lastSyncs[f.id] ?? null;
+        // Record a fresh sync time when the folder is in agreement with
+        // the cluster. globalBytes > 0 keeps newly-added empty folders
+        // out of the watchdog (no notes yet ≠ stale).
+        if (
+          isVault &&
+          status &&
+          status.state === 'idle' &&
+          status.needBytes === 0 &&
+          status.globalBytes > 0
+        ) {
+          lastSyncMs = now;
+          recordSync(f.id, now).catch(() => {});
+        }
+        return { config: f, status, error: fetchError, errors, isVault, lastSyncMs };
       }),
     );
     return { folders: folderViews, offers };
@@ -240,7 +267,7 @@ function PendingOfferCard({
 }
 
 function FolderCard({ folder, onPress }: { folder: FolderView; onPress: () => void }) {
-  const { config, status, errors } = folder;
+  const { config, status, errors, isVault, lastSyncMs } = folder;
   const label = config.label || config.id;
   const state = status?.state;
   const stateLabel = folder.error
@@ -250,6 +277,14 @@ function FolderCard({ folder, onPress }: { folder: FolderView; onPress: () => vo
       : state ?? 'unknown';
   const tone = folder.error ? 'error' : config.paused ? 'default' : stateTone(state);
   const errorCount = errors.length;
+  // Re-render once a minute so "5 min ago" doesn't sit at "just now".
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    if (!isVault || !lastSyncMs) return;
+    const t = setInterval(() => setNow(Date.now()), 60_000);
+    return () => clearInterval(t);
+  }, [isVault, lastSyncMs]);
+  const stale = isVault && lastSyncMs ? isStale(lastSyncMs, now) : false;
 
   return (
     <TouchableOpacity onPress={onPress} activeOpacity={0.7}>
@@ -296,7 +331,20 @@ function FolderCard({ folder, onPress }: { folder: FolderView; onPress: () => vo
           <Text style={styles.meta}>{config.type}</Text>
           <Text style={styles.metaDot}>·</Text>
           <Text style={styles.meta}>{config.id}</Text>
+          {isVault && (
+            <>
+              <Text style={styles.metaDot}>·</Text>
+              <Text style={styles.meta}>vault</Text>
+            </>
+          )}
         </View>
+
+        {isVault && lastSyncMs && (
+          <Text style={[styles.watchdog, stale && styles.watchdogStale]}>
+            Last synced {formatRelativeTime(now, lastSyncMs)}
+            {stale ? ' — open SyncUp to catch up' : ''}
+          </Text>
+        )}
       </Card>
     </TouchableOpacity>
   );
@@ -406,6 +454,12 @@ const styles = StyleSheet.create({
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   meta: { color: colors.textDim, fontSize: 11, fontFamily: 'Menlo' },
   metaDot: { color: colors.textDim, fontSize: 11 },
+  watchdog: {
+    color: colors.textDim,
+    fontSize: 11,
+    marginTop: 6,
+  },
+  watchdogStale: { color: colors.error, fontWeight: '600' },
   emptyBox: {
     padding: 24,
     alignItems: 'center',

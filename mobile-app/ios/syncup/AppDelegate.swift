@@ -2,6 +2,7 @@ import AppIntents
 import Expo
 import React
 import ReactAppDependencyProvider
+import UserNotifications
 
 @UIApplicationMain
 public class AppDelegate: ExpoAppDelegate {
@@ -20,6 +21,16 @@ public class AppDelegate: ExpoAppDelegate {
     // BGTaskScheduler handlers must be registered before didFinishLaunching returns.
     BackgroundManager.shared.register()
     BackgroundManager.shared.scheduleNext()
+
+    // Request notification authorization at foreground so the BG path
+    // (folder errors, stale vault watchdog) never has to prompt — BG tasks
+    // can't show UI, and the lazy prompt would silently no-op.
+    let center = UNUserNotificationCenter.current()
+    center.getNotificationSettings { settings in
+      if settings.authorizationStatus == .notDetermined {
+        center.requestAuthorization(options: [.alert, .sound, .badge]) { _, _ in }
+      }
+    }
 
     // register App Shortcuts with the system
     if #available(iOS 16.0, *) {

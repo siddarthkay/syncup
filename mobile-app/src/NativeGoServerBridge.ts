@@ -36,6 +36,15 @@ export interface Spec extends TurboModule {
     sampleError: string,
   ) => boolean;
   /**
+   * Mirror the JS-side vault registry to native storage so the iOS background
+   * task can fire a "vault stale" local notification without re-reading
+   * AsyncStorage. Payload shape:
+   *   { "vaults": [folderId, ...], "lastSyncs": { folderId: epochMs, ... } }
+   * Android: no-op (foreground service notification already advertises sync
+   * state continuously).
+   */
+  readonly setVaultRegistry: (json: string) => void;
+  /**
    * Present the system folder picker. Cross-platform: Android wraps SAF
    * (`ACTION_OPEN_DOCUMENT_TREE`), iOS wraps `UIDocumentPickerViewController`
    * + security-scoped bookmarks. Returns JSON string:

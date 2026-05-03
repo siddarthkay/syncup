@@ -280,6 +280,14 @@ class GoServerBridgeModule(reactContext: ReactApplicationContext) :
         )
     }
 
+    // No-op on Android. The foreground service notification already
+    // advertises sync state continuously, so a "vault is stale" push would
+    // be redundant. Kept as an interface match so JS can call it
+    // unconditionally without a Platform.OS guard at every call site.
+    override fun setVaultRegistry(json: String) {
+        // intentionally empty
+    }
+
     override fun pickExternalFolder(): String {
         // Launch the system SAF folder picker synchronously from the JS thread.
         // We use SAFPickerHelper which is registered on the Activity and blocks
