@@ -3,7 +3,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { copyFile } from '../fs/bridgeFs';
 
-export type FolderStructure = 'flat' | 'byDate' | 'byYearMonth';
+export type FolderStructure = 'flat' | 'byDate' | 'byYearMonth' | 'byAlbum';
 export type MediaFilter = 'photo' | 'video' | 'all';
 
 export interface PhotoBackupConfig {
@@ -13,6 +13,28 @@ export interface PhotoBackupConfig {
   folderLabel: string;
   structure: FolderStructure;
   mediaFilter: MediaFilter;
+  /** Run the backup periodically in the background (WorkManager/BGTask). */
+  autoBackup?: boolean;
+  /**
+   * Requested interval between background runs, in minutes. The OS enforces a
+   * floor (~15 min on Android, opportunistic on iOS), so shorter values are
+   * clamped by the scheduler.
+   */
+  intervalMinutes?: number;
+  /**
+   * Move instead of copy: after an asset is verified present in the backup
+   * folder, delete the original from the device gallery. Deletion is silent
+   * when All Files Access is granted; otherwise Android shows a system consent
+   * dialog (so it only works on a foreground run, never headless).
+   */
+  deleteAfterBackup?: boolean;
+  /**
+   * Keep each file's original name (true, default). When false, the file is
+   * renamed to a timestamp derived from its creation time
+   * (e.g. 2024-08-11_143022.HEIC), which avoids collisions between same-named
+   * shots from different sources.
+   */
+  keepOriginalName?: boolean;
 }
 
 export interface BackupProgress {
@@ -20,6 +42,8 @@ export interface BackupProgress {
   total: number;
   copied: number;
   skipped: number;
+  /** Originals removed from the gallery when "move" (deleteAfterBackup) is on. */
+  deleted?: number;
   errorMessage?: string;
   lastSkipReason?: string;
 }
@@ -132,11 +156,56 @@ function isUnder(path: string, root: string): boolean {
   return p === r || p.startsWith(r + '/');
 }
 
+// albumFromLocalUri returns the immediate parent folder name of an on-disk
+// asset, which on Android matches the gallery's album (bucket) grouping:
+//   file:///storage/emulated/0/DCIM/Camera/IMG_2020.HEIC -> "Camera"
+// Returns null when the path has no usable parent (e.g. iOS container URIs),
+// in which case byAlbum falls back to the folder root.
+function albumFromLocalUri(localUri?: string): string | null {
+  if (!localUri) return null;
+  const p = stripFileScheme(localUri);
+  const lastSlash = p.lastIndexOf('/');
+  if (lastSlash <= 0) return null;
+  const dir = p.slice(0, lastSlash);
+  const parentSlash = dir.lastIndexOf('/');
+  const name = parentSlash >= 0 ? dir.slice(parentSlash + 1) : dir;
+  return name || null;
+}
+
+function basename(p: string): string {
+  const clean = p.replace(/\/+$/, '');
+  const idx = clean.lastIndexOf('/');
+  return idx >= 0 ? clean.slice(idx + 1) : clean;
+}
+
+// fileNameFor picks the destination filename. The original on-disk name (taken
+// from localUri when available, else asset.filename) is the truest source.
+// When keepOriginalName is off, the file is renamed to a creation-time stamp
+// (2024-08-11_143022.HEIC), preserving the extension, to dodge collisions.
+function fileNameFor(
+  asset: MediaLibrary.Asset,
+  localUri: string | undefined,
+  keepOriginalName: boolean,
+): string {
+  const original = (localUri ? basename(stripFileScheme(localUri)) : '') || asset.filename;
+  if (keepOriginalName) return original;
+
+  const raw = asset.creationTime;
+  const date = new Date(raw < 1e12 ? raw * 1000 : raw);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  const stamp =
+    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}` +
+    `_${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`;
+  const ext = original.match(/\.[^./]+$/)?.[0] ?? '';
+  return `${stamp}${ext}`;
+}
+
 function destPath(
   asset: MediaLibrary.Asset,
   structure: FolderStructure,
+  album: string | null,
+  name: string,
 ): string {
-  const name = asset.filename;
   // creationTime is milliseconds on iOS, seconds on some Android versions
   const raw = asset.creationTime;
   const date = new Date(raw < 1e12 ? raw * 1000 : raw);
@@ -153,6 +222,8 @@ function destPath(
       const m = String(date.getMonth() + 1).padStart(2, '0');
       return `${y}/${m}/${name}`;
     }
+    case 'byAlbum':
+      return album ? `${album}/${name}` : name;
     case 'flat':
     default:
       return name;
@@ -249,6 +320,12 @@ export async function runBackup(
   // no overlap is possible and the guard is a no-op.
   const targetRealPath = resolveTargetRealPath(folderPath);
 
+  // Assets verified present in the backup folder this run (freshly copied or
+  // already on disk). When "move" is on, these originals get deleted at the end.
+  // Overlap-skipped assets (source already inside the target) are deliberately
+  // excluded — deleting them would remove the backup itself.
+  const deletable: MediaLibrary.Asset[] = [];
+
   for (const asset of toBackUp) {
     if (signal?.cancelled) break;
 
@@ -278,7 +355,8 @@ export async function runBackup(
         continue;
       }
 
-      const rel = destPath(asset, config.structure);
+      const fileName = fileNameFor(asset, info.localUri, config.keepOriginalName ?? true);
+      const rel = destPath(asset, config.structure, albumFromLocalUri(info.localUri), fileName);
       const targetUri = `${folderUri}/${rel}`;
 
       const lastSlash = targetUri.lastIndexOf('/');
@@ -294,6 +372,7 @@ export async function runBackup(
       const exists = await FileSystem.getInfoAsync(targetUri);
       if (exists.exists) {
         backedUp.add(asset.id);
+        deletable.push(asset);
         progress.skipped++;
         progress.lastSkipReason = `"${asset.filename}" already on disk`;
         onProgress({ ...progress });
@@ -343,6 +422,7 @@ export async function runBackup(
 
       if (copied) {
         backedUp.add(asset.id);
+        deletable.push(asset);
         progress.copied++;
       } else {
         progress.skipped++;
@@ -361,6 +441,21 @@ export async function runBackup(
   }
 
   await saveBackedUpIds(backedUp);
+
+  // Move mode: delete originals that are now safely in the backup folder. One
+  // batched call = at most one system consent dialog (and none at all when All
+  // Files Access is granted, so it also works on a headless background run).
+  if (config.deleteAfterBackup && deletable.length > 0 && !signal?.cancelled) {
+    try {
+      await MediaLibrary.deleteAssetsAsync(deletable);
+      progress.deleted = deletable.length;
+    } catch (e) {
+      // Consent denied or no Activity (headless without All Files Access).
+      // Originals stay; the copy already succeeded, so this is non-fatal.
+      progress.lastSkipReason = `delete skipped: ${e instanceof Error ? e.message : String(e)}`;
+    }
+    onProgress({ ...progress });
+  }
 
   progress.phase = 'done';
   onProgress({ ...progress });
