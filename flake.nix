@@ -59,7 +59,7 @@
             gotools
 
             # Node
-            nodejs_20
+            nodejs_22
             corepack
 
             # Java (Android builds)

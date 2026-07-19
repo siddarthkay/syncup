@@ -114,7 +114,7 @@ const styles = StyleSheet.create({
   body: { flex: 1 },
   web: { flex: 1, backgroundColor: colors.bg },
   loading: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     alignItems: 'center',
     justifyContent: 'center',
     backgroundColor: colors.bg,

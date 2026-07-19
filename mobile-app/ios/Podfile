@@ -7,9 +7,7 @@ podfile_properties = JSON.parse(File.read(File.join(__dir__, 'Podfile.properties
 ENV['RCT_NEW_ARCH_ENABLED'] ||= '0' if podfile_properties['newArchEnabled'] == 'false'
 ENV['EX_DEV_CLIENT_NETWORK_INSPECTOR'] ||= podfile_properties['EX_DEV_CLIENT_NETWORK_INSPECTOR']
 ENV['RCT_USE_RN_DEP'] ||= '1' if podfile_properties['ios.buildReactNativeFromSource'] != 'true' && podfile_properties['newArchEnabled'] != 'false'
-# Force building React-Core from source to include DevSupport for expo-dev-client since expo 55 is not out yet
-ENV['RCT_USE_PREBUILT_RNCORE'] = '0'
-platform :ios, podfile_properties['ios.deploymentTarget'] || '16.0'
+platform :ios, podfile_properties['ios.deploymentTarget'] || '16.4'
 
 prepare_react_native_project!
 
@@ -61,7 +59,7 @@ target 'syncup' do
     # Patch pod targets
     installer.pods_project.targets.each do |target|
       target.build_configurations.each do |config|
-        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.0'
+        config.build_settings['IPHONEOS_DEPLOYMENT_TARGET'] = '16.4'
         config.build_settings['HEADER_SEARCH_PATHS'] ||= ['$(inherited)']
         config.build_settings['HEADER_SEARCH_PATHS'] << folly_path
       end

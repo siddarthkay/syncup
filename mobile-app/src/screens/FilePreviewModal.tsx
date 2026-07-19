@@ -219,7 +219,7 @@ function VideoPreview({ fileUri, audioOnly }: { fileUri: string; audioOnly?: boo
         player={player}
         style={audioOnly ? styles.audioView : styles.videoView}
         contentFit="contain"
-        allowsFullscreen
+        fullscreenOptions={{ enable: true }}
         allowsPictureInPicture
       />
     </View>

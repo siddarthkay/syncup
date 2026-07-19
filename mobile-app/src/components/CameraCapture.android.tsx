@@ -21,6 +21,7 @@ export const CameraView = forwardRef<
     </>
   );
 });
+CameraView.displayName = 'CameraView';
 
 export function useCameraPermissions(): [
   { granted: boolean; canAskAgain: boolean } | null,

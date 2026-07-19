@@ -40,6 +40,11 @@ module.exports = [
       // Exhaustive deps is a noisy but valuable correctness check.
       'react-hooks/exhaustive-deps': 'warn',
 
+      'react-hooks/refs': 'warn',
+      'react-hooks/set-state-in-effect': 'warn',
+      'react-hooks/immutability': 'warn',
+      'react-hooks/purity': 'warn',
+
       // Soft on 'any', we use it for a few bridge-facing boundaries.
       '@typescript-eslint/no-explicit-any': 'off',
 

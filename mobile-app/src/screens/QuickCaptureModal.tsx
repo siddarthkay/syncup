@@ -222,7 +222,7 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#000' },
   camera: { flex: 1 },
   overlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     justifyContent: 'space-between',
   },
   topBar: {
@@ -286,7 +286,7 @@ const styles = StyleSheet.create({
   permissionBtnText: { color: '#fff', fontSize: 15, fontWeight: '600' },
   cancelText: { color: colors.textDim, fontSize: 14, marginTop: 8 },
   pickerOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    ...StyleSheet.absoluteFill,
     backgroundColor: 'rgba(0,0,0,0.7)',
     justifyContent: 'flex-end',
   },
