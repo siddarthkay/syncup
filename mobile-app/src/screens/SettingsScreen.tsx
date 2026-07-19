@@ -17,6 +17,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
+import Constants from 'expo-constants';
 import { Focusable } from '../components/Focusable';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import GoBridge from '../GoServerBridgeJSI';
@@ -424,6 +425,7 @@ export function SettingsScreen() {
 
       <Card>
         <CardTitle>App</CardTitle>
+        <Row label="Version" value={Constants.expoConfig?.version ?? 'unknown'} />
         <Row label="Platform" value={`${Platform.OS} ${Platform.Version}`} />
         <Row label="Package" value="com.siddarthkay.syncup" mono />
       </Card>
@@ -590,7 +592,7 @@ export function SettingsScreen() {
             <View style={{ flex: 1, paddingRight: 12 }}>
               <Text style={styles.switchLabel}>Continuous background sync</Text>
               <Text style={styles.switchHint}>
-                Off by default. When on, SyncUp keeps syncing while backgrounded instead of only in the brief windows iOS normally allows, closer to how it behaves on Android. Uses noticeably more battery, since the sync engine and network stay awake continuously.
+                Off by default. When on, SyncUp keeps syncing while backgrounded instead of only in the brief windows iOS normally allows. Uses noticeably more battery.
               </Text>
             </View>
             <Switch

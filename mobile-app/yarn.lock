@@ -10444,6 +10444,7 @@ __metadata:
     eslint-plugin-unused-imports: "npm:^4.4.1"
     expo: "npm:~54.0.10"
     expo-camera: "npm:~17.0.10"
+    expo-constants: "npm:~18.0.9"
     expo-dev-client: "npm:~6.0.12"
     expo-file-system: "npm:~19.0.21"
     expo-haptics: "npm:~15.0.8"

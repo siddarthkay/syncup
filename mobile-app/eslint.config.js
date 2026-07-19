@@ -57,6 +57,7 @@ module.exports = [
       '.expo/**',
       'dist/**',
       'web-build/**',
+      'app.config.js',
       'babel.config.js',
       'metro.config.js',
       'eslint.config.js',
