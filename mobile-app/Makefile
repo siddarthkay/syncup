@@ -18,6 +18,7 @@ install:
 pod-install:
 	@echo "Installing CocoaPods dependencies..."
 	@cd ios && pod install
+	@rm -f ios/Pods/.last_build_configuration
 	@echo "✓ CocoaPods installed"
 
 # Default MARKETING_VERSION (CFBundleShortVersionString) from repo VERSION file

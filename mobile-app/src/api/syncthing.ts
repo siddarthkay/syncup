@@ -110,8 +110,21 @@ export class SyncthingClient {
     return this.request<void>('/rest/system/restart', { method: 'POST' });
   }
 
-  systemLog() {
-    return this.request<SystemLogResponse>('/rest/system/log');
+  systemLog(opts?: { since?: string; limit?: number }) {
+    const params = new URLSearchParams();
+    if (opts?.since) params.set('since', opts.since);
+    if (opts?.limit != null) params.set('limit', String(opts.limit));
+    const query = params.toString();
+    return this.request<SystemLogResponse>(
+      `/rest/system/log${query ? `?${query}` : ''}`,
+    );
+  }
+
+  systemLogTxtEndpoint(): { url: string; headers: Record<string, string> } {
+    return {
+      url: `${this.baseUrl}/rest/system/log.txt`,
+      headers: { 'X-API-Key': this.apiKey },
+    };
   }
 
   config() {

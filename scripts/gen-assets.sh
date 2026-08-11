@@ -11,6 +11,7 @@ SYNCTHING_API="https://api.github.com/repos/syncthing/syncthing"
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 BACKEND_DIR="$REPO_ROOT/backend"
+PATCH_DIR="$BACKEND_DIR/patches"
 WORK_TMP=""
 
 log()     { echo "==> $*"; }
@@ -19,7 +20,7 @@ cleanup() { [[ -z "$WORK_TMP" ]] || rm -rf "$WORK_TMP"; }
 
 require_tools() {
     local tool
-    for tool in "$GO" git curl awk; do
+    for tool in "$GO" git curl awk patch; do
         command -v "$tool" >/dev/null 2>&1 || die "required tool not found: $tool"
     done
 }
@@ -64,6 +65,18 @@ overlay_gui() {
         || die "vendored GUI libs missing after fetch"
 }
 
+apply_patches() {
+    local patch found=0
+    for patch in "$PATCH_DIR"/*.patch; do
+        [[ -f "$patch" ]] || continue
+        found=$((found + 1))
+        patch -p1 -d "$SYNCTHING_FORK" --forward --no-backup-if-mismatch < "$patch" \
+            || die "failed to apply $(basename "$patch")"
+        log "applied $(basename "$patch")"
+    done
+    [[ "$found" -gt 0 ]] || log "no patches in $PATCH_DIR"
+}
+
 generate_assets() {
     local out="$SYNCTHING_FORK/lib/api/auto/gui.files.go"
     SOURCE_DATE_EPOCH="$GUI_ASSETS_EPOCH" \
@@ -82,5 +95,6 @@ mirror_module "$(module_dir "$version")"
 log "mirrored module"
 overlay_gui "$(resolve_commit "$version")"
 log "overlaid complete gui"
+apply_patches
 generate_assets
 log "generated $SYNCTHING_FORK/lib/api/auto/gui.files.go"

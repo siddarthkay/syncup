@@ -1,0 +1,95 @@
+--- a/internal/slogutil/recorder.go
++++ b/internal/slogutil/recorder.go
+@@ -23,20 +23,36 @@
+ 	return &lineRecorder{level: level}
+ }
+ 
++// NewRecorderSize is NewRecorder with an explicit retention cap, for recorders
++// whose contents are exported as a support artifact rather than just shown in
++// the GUI's log view.
++func NewRecorderSize(level slog.Level, maxLines int) Recorder {
++	return &lineRecorder{level: level, maxLines: maxLines}
++}
++
+ type lineRecorder struct {
+ 	level slog.Level
+-	mut   sync.Mutex
+-	lines []Line
++	// maxLines is the retention cap; zero means maxLogLines.
++	maxLines int
++	mut      sync.Mutex
++	lines    []Line
+ }
+ 
++func (r *lineRecorder) cap() int {
++	if r.maxLines > 0 {
++		return r.maxLines
++	}
++	return maxLogLines
++}
++
+ func (r *lineRecorder) record(line Line) {
+ 	if line.Level < r.level {
+ 		return
+ 	}
+ 	r.mut.Lock()
+ 	r.lines = append(r.lines, line)
+-	if len(r.lines) > maxLogLines {
+-		r.lines = r.lines[len(r.lines)-maxLogLines:]
++	if max := r.cap(); len(r.lines) > max {
++		r.lines = r.lines[len(r.lines)-max:]
+ 	}
+ 	r.mut.Unlock()
+ }
+--- a/internal/slogutil/sloginit.go
++++ b/internal/slogutil/sloginit.go
+@@ -14,7 +14,12 @@
+ )
+ 
+ var (
+-	GlobalRecorder    = &lineRecorder{level: -1000}
++	// The mobile app exports this buffer as a single log file when a user is
++	// asked for one, so it has to cover a whole debugging session rather than
++	// the last few seconds of a chatty folder. 50k lines is on the order of
++	// 10 MB resident. ErrorRecorder stays small: it only ever holds errors,
++	// and nothing exports it wholesale.
++	GlobalRecorder    = &lineRecorder{level: -1000, maxLines: 50_000}
+ 	ErrorRecorder     = &lineRecorder{level: slog.LevelError}
+ 	DefaultLineFormat = LineFormat{
+ 		TimestampFormat: time.DateTime,
+--- a/lib/api/api.go
++++ b/lib/api/api.go
+@@ -1092,8 +1092,16 @@
+ 	if err != nil {
+ 		l.Debugln(err)
+ 	}
++	lines := s.systemLog.Since(since)
++	// The in-memory buffer is far larger than any live log view wants to
++	// render, so callers can ask for just the tail of it. They then poll with
++	// `since` for updates. Without a limit the whole buffer is returned, as
++	// before.
++	if limit, err := strconv.Atoi(q.Get("limit")); err == nil && limit > 0 && limit < len(lines) {
++		lines = lines[len(lines)-limit:]
++	}
+ 	sendJSON(w, map[string][]slogutil.Line{
+-		"messages": s.systemLog.Since(since),
++		"messages": lines,
+ 	})
+ }
+ 
+@@ -1105,8 +1113,14 @@
+ 	}
+ 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+ 
++	// Level is included so this endpoint carries everything the JSON one does:
++	// it's what clients download when a user is asked to send in their log.
++	format := slogutil.LineFormat{TimestampFormat: time.RFC3339, LevelString: true}
+ 	for _, line := range s.systemLog.Since(since) {
+-		fmt.Fprintf(w, "%s: %s\n", line.When.Format(time.RFC3339), line.Message)
++		if _, err := line.WriteTo(w, format); err != nil {
++			l.Debugln(err)
++			return
++		}
+ 	}
+ }
+ 

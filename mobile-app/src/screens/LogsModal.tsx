@@ -1,13 +1,19 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator,
+  Alert,
   Modal,
+  Platform,
+  Share,
   StyleSheet,
   Text,
   TouchableWithoutFeedback,
   useWindowDimensions,
   View,
 } from 'react-native';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
+import ReactNativeBlobUtil from 'react-native-blob-util';
 import { Focusable } from '../components/Focusable';
 import { FlashList } from '@shopify/flash-list';
 import { useSyncthingClient } from '../daemon/SyncthingContext';
@@ -15,6 +21,7 @@ import type { SystemLogMessage } from '../api/types';
 import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors } from '../components/ui';
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight';
+import { formatLogHeader, logFileName } from '../utils/logExport';
 
 interface Props {
   visible: boolean;
@@ -22,10 +29,11 @@ interface Props {
 }
 
 const REFRESH_MS = 2000;
+const MAX_RETAINED = 2000;
+const INITIAL_TAIL = 500;
+const LOG_BODY_TMP = 'syncup-logbody.tmp';
 
 // inverted FlashList. FlatList was janky on Android at a few hundred rows.
-// /rest/system/log returns the full ring buffer each call; we track last-seen
-// by timestamp and only prepend fresh lines.
 export function LogsModal({ visible, onClose }: Props) {
   const client = useSyncthingClient();
   const keyboardHeight = useKeyboardHeight();
@@ -37,28 +45,23 @@ export function LogsModal({ visible, onClose }: Props) {
   const [error, setError] = useState<string | null>(null);
   const [paused, setPaused] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [exporting, setExporting] = useState(false);
 
   const lastSeenRef = useRef<string>('');
 
   const fetchLogs = useCallback(async () => {
     try {
-      const res = await client.systemLog();
-      const all = res.messages ?? [];
-      if (all.length === 0) return;
-      const lastSeen = lastSeenRef.current;
-      let startIdx = 0;
-      if (lastSeen) {
-        const idx = all.findIndex(m => m.when === lastSeen);
-        if (idx >= 0) startIdx = idx + 1;
-      }
-      const fresh = all.slice(startIdx);
+      const since = lastSeenRef.current;
+      const res = await client.systemLog(
+        since ? { since } : { limit: INITIAL_TAIL },
+      );
+      const fresh = res.messages ?? [];
       if (fresh.length === 0) return;
       lastSeenRef.current = fresh[fresh.length - 1].when;
       setMessages(prev => {
-        // cap retention so long open sessions don't blow memory
         const reversed = [...fresh].reverse();
         const next = [...reversed, ...prev];
-        if (next.length > 2000) next.length = 2000;
+        if (next.length > MAX_RETAINED) next.length = MAX_RETAINED;
         return next;
       });
     } catch (e) {
@@ -92,6 +95,71 @@ export function LogsModal({ visible, onClose }: Props) {
       fetchLogs();
     }
   };
+
+  const exportLog = useCallback(async () => {
+    if (exporting) return;
+    setExporting(true);
+    const dir = FileSystem.cacheDirectory;
+    const bodyUri = `${dir}${LOG_BODY_TMP}`;
+    try {
+      if (!dir) throw new Error('No cache directory available');
+      await deleteStaleExports();
+      const { url, headers } = client.systemLogTxtEndpoint();
+      const [download, version, status] = await Promise.all([
+        FileSystem.downloadAsync(url, bodyUri, {
+          headers,
+          sessionType: FileSystem.FileSystemSessionType.FOREGROUND,
+        }),
+        client.systemVersion().catch(() => null),
+        client.systemStatus().catch(() => null),
+      ]);
+      if (download.status !== 200) {
+        throw new Error(`Log download failed: HTTP ${download.status}`);
+      }
+      const info = await FileSystem.getInfoAsync(bodyUri);
+      const logBytes = info.exists ? (info.size ?? 0) : 0;
+      if (logBytes === 0) {
+        Alert.alert('Nothing to export', 'The daemon log is empty.');
+        return;
+      }
+
+      const exportedAt = new Date().toISOString();
+      const uri = `${dir}${logFileName(exportedAt)}`;
+      await FileSystem.writeAsStringAsync(
+        uri,
+        formatLogHeader({
+          version,
+          status,
+          platform: `${Platform.OS} ${String(Platform.Version)}`,
+          exportedAt,
+          logBytes,
+        }),
+      );
+      await ReactNativeBlobUtil.fs.appendFile(
+        stripScheme(uri),
+        stripScheme(bodyUri),
+        'uri',
+      );
+
+      if (await Sharing.isAvailableAsync()) {
+        await Sharing.shareAsync(uri, {
+          mimeType: 'text/plain',
+          UTI: 'public.plain-text',
+          dialogTitle: 'Share daemon log',
+        });
+      } else {
+        await Share.share({
+          url: uri,
+          message: Platform.OS === 'android' ? uri : undefined,
+        });
+      }
+    } catch (e) {
+      Alert.alert('Export failed', e instanceof Error ? e.message : String(e));
+    } finally {
+      await FileSystem.deleteAsync(bodyUri, { idempotent: true }).catch(() => {});
+      setExporting(false);
+    }
+  }, [client, exporting]);
 
   const renderItem = useCallback(
     ({ item }: { item: SystemLogMessage }) => (
@@ -132,6 +200,17 @@ export function LogsModal({ visible, onClose }: Props) {
               Daemon log
             </Text>
             <View style={styles.headerActions}>
+              <Focusable
+                onPress={exportLog}
+                hitSlop={8}
+                style={styles.headerBtn}
+                disabled={exporting}
+                accessibilityLabel="Export log file"
+              >
+                <Text style={[styles.headerBtnText, exporting && styles.headerBtnDisabled]}>
+                  {exporting ? 'Exporting…' : 'Export'}
+                </Text>
+              </Focusable>
               <Focusable
                 onPress={() => setPaused(p => !p)}
                 hitSlop={8}
@@ -176,6 +255,25 @@ export function LogsModal({ visible, onClose }: Props) {
   );
 }
 
+function stripScheme(uri: string): string {
+  return uri.replace(/^file:\/\//, '');
+}
+
+async function deleteStaleExports() {
+  const dir = FileSystem.cacheDirectory;
+  if (!dir) return;
+  try {
+    const entries = await FileSystem.readDirectoryAsync(dir);
+    await Promise.all(
+      entries
+        .filter(name => name.startsWith('syncup-log-') && name.endsWith('.txt'))
+        .map(name => FileSystem.deleteAsync(`${dir}${name}`, { idempotent: true })),
+    );
+  } catch {
+    // a cache we can't tidy is not a reason to fail the export
+  }
+}
+
 function formatTime(when: string): string {
   // HH:MM:SS only. date is noise in a tail view
   const d = new Date(when);
@@ -209,9 +307,10 @@ const styles = StyleSheet.create({
   },
   title: { color: colors.text, fontSize: 16, fontWeight: '600', flex: 1, textAlign: 'center' },
   cancel: { color: colors.textDim, fontSize: 15 },
-  headerActions: { flexDirection: 'row', gap: 12 },
-  headerBtn: { paddingHorizontal: 4 },
-  headerBtnText: { color: colors.accent, fontSize: 14, fontWeight: '600' },
+  headerActions: { flexDirection: 'row', gap: 10 },
+  headerBtn: { paddingHorizontal: 2 },
+  headerBtnText: { color: colors.accent, fontSize: 13, fontWeight: '600' },
+  headerBtnDisabled: { color: colors.textDim },
   error: {
     color: colors.error,
     fontSize: 12,

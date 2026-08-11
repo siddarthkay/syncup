@@ -92,7 +92,8 @@ export interface DeviceConfig {
 
 export interface SystemLogMessage {
   when: string;
-  level: number;
+  /** Short level string as the daemon serializes it: DBG, INF, WRN, ERR. */
+  level: string;
   message: string;
 }
 
