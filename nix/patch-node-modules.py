@@ -32,8 +32,11 @@ BINARY_EXTS = frozenset({
 })
 
 # The Hermes bytecode compiler is skipped, we dont want to build it from scratch, its
-# open source anyways. 
-HERMESC_DIR = NM / "reuseact-native" / "sdks" / "hermesc"
+HERMESC_DIRS = (
+    NM / "hermes-compiler" / "hermesc",
+    NM / "react-native" / "sdks" / "hermesc",
+)
+HERMESC_RELS = tuple(str(d.relative_to(MOBILE)) + "/" for d in HERMESC_DIRS)
 
 # scan_source() auto-removes these,we snapshot + restore so a local `./gradlew`
 # still works after running the patch.
@@ -53,7 +56,7 @@ def remove_prebuilt_binaries() -> int:
     for path in NM.rglob("*"):
         if not path.is_file() or path.suffix not in BINARY_EXTS:
             continue
-        if HERMESC_DIR in path.parents:
+        if any(d in path.parents for d in HERMESC_DIRS):
             continue
         path.unlink()
         removed += 1
@@ -123,8 +126,7 @@ def apply_scanner_fixes(errors: list[tuple[str, str]]) -> int:
     for what, rel in errors:
         if not rel.startswith("node_modules/"):
             continue
-        if rel.startswith("node_modules/react-native/sdks/hermesc/"):
-            # Covered by the fdroid metadata's scanignore entry.
+        if rel.startswith(HERMESC_RELS):
             continue
         target = MOBILE / rel
         m = QUOTED_LITERAL.search(what)
