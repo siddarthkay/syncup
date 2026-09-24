@@ -5223,12 +5223,21 @@ __metadata:
   languageName: node
   linkType: hard
 
-"expo-modules-jsi@npm:~57.0.3":
+"expo-modules-jsi@npm:57.0.3":
   version: 57.0.3
   resolution: "expo-modules-jsi@npm:57.0.3"
   peerDependencies:
     react-native: "*"
   checksum: 10c0/127a1652d077d615bfa40f69cdd0b9be8e4dd7c64b34c9f498ee335b4f2d12c40f78411840b27e94b0924b7f2ff777b3391438a1186d602dc66ec947667d66ca
+  languageName: node
+  linkType: hard
+
+"expo-modules-jsi@patch:expo-modules-jsi@npm%3A57.0.3#~/.yarn/patches/expo-modules-jsi-npm-57.0.3-26839930f3.patch":
+  version: 57.0.3
+  resolution: "expo-modules-jsi@patch:expo-modules-jsi@npm%3A57.0.3#~/.yarn/patches/expo-modules-jsi-npm-57.0.3-26839930f3.patch::version=57.0.3&hash=91037f"
+  peerDependencies:
+    react-native: "*"
+  checksum: 10c0/4ead70b855974b2e3196e94b4c83f1d8ee207ff936ffc2c07fd09e8b06100cb27a1160be465a4fd607c9f69cd619953d3ca75ed7e7967d906c85f65d6bed6f06
   languageName: node
   linkType: hard
 

@@ -77,5 +77,8 @@
       ]
     }
   },
-  "private": true
+  "private": true,
+  "resolutions": {
+    "expo-modules-jsi@npm:~57.0.3": "patch:expo-modules-jsi@npm%3A57.0.3#~/.yarn/patches/expo-modules-jsi-npm-57.0.3-26839930f3.patch"
+  }
 }

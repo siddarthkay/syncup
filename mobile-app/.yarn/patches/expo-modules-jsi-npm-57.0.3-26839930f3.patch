@@ -1,0 +1,28 @@
+diff --git a/apple/scripts/build-xcframework.sh b/apple/scripts/build-xcframework.sh
+index 28d3249bebc01086a04487b8b1ab12de225abacd..f9af1f9fc0d1043d0637bab25561fd1df723595c 100755
+--- a/apple/scripts/build-xcframework.sh
++++ b/apple/scripts/build-xcframework.sh
+@@ -199,6 +199,14 @@ build_slice() {
+     env_args+=(DEVELOPER_DIR="$DEVELOPER_DIR")
+   fi
+ 
++  # Xcode 27 + `-quiet`: a SwiftCompile task that only emits warnings (e.g. the
++  # React-jsi umbrella-header warnings) is reported as
++  #   "error: the following command failed with exit code 0 but produced no further output"
++  # even though the nested build succeeds (exit 0, slice produced). The host
++  # app's xcodebuild parses script-phase output for `error:` prefixes and fails
++  # the archive on that line. Drop exactly that line; `set -o pipefail` keeps
++  # xcodebuild's real exit status, so genuine failures still abort.
++  # See https://github.com/expo/expo/issues/50311
+   (cd "$PACKAGE_DIR" && env -i "${env_args[@]}" \
+     xcodebuild \
+     build \
+@@ -217,7 +225,7 @@ build_slice() {
+     DEBUG_INFORMATION_FORMAT=dwarf-with-dsym \
+     COMPILER_INDEX_STORE_ENABLE=NO \
+     SWIFT_COMPILATION_MODE=wholemodule \
+-  )
++  ) 2>&1 | sed '/^error: the following command failed with exit code 0 but produced no further output$/d'
+ 
+   local product_path="${BUILD_PRODUCTS_PATH}/${build_dir_name}"
+   local framework_src="${product_path}/PackageFrameworks/${PACKAGE_NAME}.framework"
