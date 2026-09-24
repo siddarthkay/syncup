@@ -1,0 +1,46 @@
+name: linux-android-toolchain
+description: >-
+  Toolchain for the Android jobs on bladerunner Linux: JDK, Android
+  SDK/NDK, Go, Node/yarn, Gradle via the repo wrapper, and the
+  patch-node-modules helper. 
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-java@v5
+      with:
+        distribution: temurin
+        java-version: '17'
+
+    - uses: android-actions/setup-android@v3
+      with:
+        packages: 'platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.1.12297006'
+
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.25'
+        cache: false
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Enable corepack (yarn version from package.json#packageManager)
+      shell: bash
+      run: corepack enable
+
+    - name: Export NDK, Gradle wrapper, patch-node-modules
+      shell: bash
+      run: |
+        echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/27.1.12297006" >> "$GITHUB_ENV"
+        echo "ANDROID_NDK_ROOT=$ANDROID_HOME/ndk/27.1.12297006" >> "$GITHUB_ENV"
+        echo "GRADLE=./gradlew" >> "$GITHUB_ENV"
+
+        venv="$HOME/.cache/syncup-fdroid-venv"
+        [ -x "$venv/bin/python" ] || python3 -m venv "$venv"
+        "$venv/bin/pip" install --quiet fdroidserver
+        mkdir -p "$RUNNER_TEMP/bin"
+        printf '#!/bin/sh\nexec "%s/bin/python" "%s/nix/patch-node-modules.py" "$@"\n' \
+          "$venv" "$GITHUB_WORKSPACE" > "$RUNNER_TEMP/bin/patch-node-modules"
+        chmod +x "$RUNNER_TEMP/bin/patch-node-modules"
+        echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"

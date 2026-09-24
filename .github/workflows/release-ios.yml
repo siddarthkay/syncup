@@ -12,9 +12,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  # Override per-runner via repo variable XCODE_DEVELOPER_DIR if needed.
-  # The default matches GitHub-hosted macOS runners' xcode-select target.
-  XCODE_DEVELOPER_DIR: ${{ vars.XCODE_DEVELOPER_DIR || '/Applications/Xcode.app/Contents/Developer' }}
+  DEVELOPER_DIR: ${{ vars.XCODE_DEVELOPER_DIR || '/Applications/Xcode.app/Contents/Developer' }}
+  SYSTEM: '1'
 
 jobs:
   # PR builds: signed .pr IPA uploaded to appdrop.sh, install link posted back to the PR.
@@ -29,23 +28,10 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: |
-          if [ ! -d "$XCODE_DEVELOPER_DIR" ]; then
-            echo "::error::XCODE_DEVELOPER_DIR=$XCODE_DEVELOPER_DIR does not exist on this runner."
-            echo "Set the XCODE_DEVELOPER_DIR repo variable to a valid Xcode Developer dir."
-            exit 1
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DEVELOPER_DIR" >> "$GITHUB_ENV"
-          echo "Selected Xcode at: $XCODE_DEVELOPER_DIR"
-          DEVELOPER_DIR=$XCODE_DEVELOPER_DIR xcodebuild -version
+      - uses: ./.github/actions/macos-toolchain
 
       - name: Scrub global Xcode caches
         run: |
-          # make clean only wipes mobile-app/ios/build & Pods. Stale state in
-          # ~/Library leaks across runs and is the textbook cause of "module X
-          # in precompiled file but not in any loaded module map file" errors
-          # (this build works locally where these dirs are empty).
           rm -rf "$HOME/Library/Developer/Xcode/DerivedData"
           rm -rf "$HOME/Library/Developer/Xcode/Archives/$(date +%Y-%m-%d)"
           rm -rf "$HOME/Library/Caches/com.apple.dt.Xcode"
@@ -58,7 +44,6 @@ jobs:
         env:
           MATCH_DEPLOY_KEY: ${{ secrets.MATCH_DEPLOY_KEY }}
         run: |
-          # Per-workspace key so we don't touch the runner's global ~/.ssh state.
           KEY="$RUNNER_TEMP/match_key"
           printf '%s\n' "$MATCH_DEPLOY_KEY" > "$KEY"
           chmod 600 "$KEY"
@@ -77,6 +62,15 @@ jobs:
           FASTLANE_HIDE_CHANGELOG: '1'
           FASTLANE_SKIP_UPDATE_CHECK: '1'
         run: make ios-pr
+
+      - name: Upload raw xcodebuild log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-archive-log-pr-${{ github.run_id }}
+          path: mobile-app/ios/build/xcodebuild-archive.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload IPA to appdrop.sh
         id: appdrop
@@ -146,16 +140,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Select Xcode
-        run: |
-          if [ ! -d "$XCODE_DEVELOPER_DIR" ]; then
-            echo "::error::XCODE_DEVELOPER_DIR=$XCODE_DEVELOPER_DIR does not exist on this runner."
-            echo "Set the XCODE_DEVELOPER_DIR repo variable to a valid Xcode Developer dir."
-            exit 1
-          fi
-          echo "DEVELOPER_DIR=$XCODE_DEVELOPER_DIR" >> "$GITHUB_ENV"
-          echo "Selected Xcode at: $XCODE_DEVELOPER_DIR"
-          DEVELOPER_DIR=$XCODE_DEVELOPER_DIR xcodebuild -version
+      - uses: ./.github/actions/macos-toolchain
 
       - name: Scrub global Xcode caches
         run: |
@@ -189,6 +174,15 @@ jobs:
           FASTLANE_HIDE_CHANGELOG: '1'
           FASTLANE_SKIP_UPDATE_CHECK: '1'
         run: make ios-release
+
+      - name: Upload raw xcodebuild log
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: xcodebuild-archive-log-release-${{ github.run_id }}
+          path: mobile-app/ios/build/xcodebuild-archive.log
+          if-no-files-found: ignore
+          retention-days: 7
 
       - name: Upload IPA artifact
         uses: actions/upload-artifact@v4

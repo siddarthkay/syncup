@@ -42,6 +42,10 @@ yarn-error.*
 /mobile-app/ios/.xcode.env.local
 /mobile-app/ios/Frameworks/
 
+# Ruby (bundler binstubs + local config; see Gemfile)
+/bin/
+/.bundle/
+
 # Fastlane
 /fastlane/report.xml
 /fastlane/README.md

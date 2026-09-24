@@ -11,14 +11,13 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NODE_VERSION: '20'
-  GO_VERSION: '1.25'
-  JAVA_VERSION: '17'
+  SYSTEM: '1'
+  DEVELOPER_DIR: ${{ vars.XCODE_DEVELOPER_DIR || '/Applications/Xcode.app/Contents/Developer' }}
 
 jobs:
   lint-and-typecheck:
     name: lint + typecheck + go vet
-    runs-on: [self-hosted, linux]
+    runs-on: bladerunner-linux
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -31,20 +30,15 @@ jobs:
   android:
     name: android build
     if: github.event_name == 'push'
-    runs-on: [self-hosted, linux]
+    runs-on: bladerunner-linux
     needs: lint-and-typecheck
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
 
-      # Nix (via flake.nix) provides Go, Node/corepack, JDK, Gradle, gomake.
-      # Android SDK/NDK are not in the flake — install them here.
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'tools platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.1.12297006'
+      - uses: ./.github/actions/linux-android-toolchain
 
-      - name: Build Android APK (via nix)
+      - name: Build Android APK
         run: make android
 
       - name: Upload APK
@@ -64,12 +58,12 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Nix provides Go, Node, CocoaPods, etc. via flake.nix.
-      # Xcode must be pre-installed on the runner.
+      - uses: ./.github/actions/macos-toolchain
+
       - name: Clean stale build state
         run: make clean
 
-      - name: Build iOS app (via nix)
+      - name: Build iOS app
         run: make ios
 
       - name: Upload simulator app

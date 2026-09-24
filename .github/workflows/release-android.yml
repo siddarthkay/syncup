@@ -12,6 +12,9 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
+env:
+  SYSTEM: '1'
+
 jobs:
   # Open PRs: build an APK with .pr applicationId suffix, upload to appdrop, comment QR.
   pr-build:
@@ -19,7 +22,7 @@ jobs:
     if: >-
       github.event_name == 'pull_request' &&
       github.event.action != 'closed'
-    runs-on: [self-hosted, linux]
+    runs-on: bladerunner-linux
     timeout-minutes: 45
     permissions:
       contents: read
@@ -27,10 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'tools platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.1.12297006'
+      - uses: ./.github/actions/linux-android-toolchain
 
       - name: Decode release keystore
         run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > /tmp/release.keystore
@@ -47,8 +47,6 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.1.12297006
-          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.1.12297006
           FDROID_VERSION_CODE: ${{ github.run_number }}
 
       - name: Upload APK to appdrop.sh
@@ -114,7 +112,7 @@ jobs:
       github.event_name == 'push' ||
       (github.event.pull_request.merged == true &&
        startsWith(github.event.pull_request.head.ref, 'release/'))
-    runs-on: [self-hosted, linux]
+    runs-on: bladerunner-linux
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
@@ -126,7 +124,7 @@ jobs:
 
   build-apk:
     name: build ${{ matrix.abi }}
-    runs-on: [self-hosted, linux]
+    runs-on: bladerunner-linux
     needs: lint-and-typecheck
     timeout-minutes: 45
     strategy:
@@ -142,12 +140,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      # Nix (via flake.nix) provides Go, Node/corepack, JDK, Gradle, gomobile.
-      # Android SDK/NDK are not in the flake — install them here.
-      - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: 'tools platform-tools platforms;android-36 build-tools;36.0.0 ndk;27.1.12297006'
+      - uses: ./.github/actions/linux-android-toolchain
 
       - name: Decode release keystore
         run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > /tmp/release.keystore
@@ -176,8 +169,6 @@ jobs:
           RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
           RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
           RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
-          ANDROID_NDK_HOME: ${{ env.ANDROID_HOME }}/ndk/27.1.12297006
-          ANDROID_NDK_ROOT: ${{ env.ANDROID_HOME }}/ndk/27.1.12297006
 
       - name: Extract versionCode
         if: matrix.abi == 'arm64-v8a'

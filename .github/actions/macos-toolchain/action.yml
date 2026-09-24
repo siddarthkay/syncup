@@ -1,0 +1,29 @@
+name: macos-toolchain
+description: >-
+  Toolchain for the iOS jobs on bladerunner macOS: Go, Node/yarn,
+  and CocoaPods + fastlane from the repo Gemfile as ./bin binstubs. Xcode and
+  a ruby >= 3.2.
+
+runs:
+  using: composite
+  steps:
+    - uses: actions/setup-go@v5
+      with:
+        go-version: '1.25'
+        cache: false
+
+    - uses: actions/setup-node@v4
+      with:
+        node-version: '22'
+
+    - name: Enable corepack (yarn version from package.json#packageManager)
+      shell: bash
+      run: corepack enable
+
+    - name: Install gems (CocoaPods, fastlane)
+      shell: bash
+      run: |
+        bundle config set --local path "$HOME/.cache/syncup-bundle"
+        bundle install
+        bundle binstubs cocoapods fastlane --force
+        echo "$GITHUB_WORKSPACE/bin" >> "$GITHUB_PATH"
