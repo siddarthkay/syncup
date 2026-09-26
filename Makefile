@@ -5,7 +5,7 @@
 #   make sim-ios              # runs inside nix (default)
 #   make sim-ios SYSTEM=1     # uses system-installed tools
 
-_ALL_TARGETS := setup ios android release-android pr-android ios-certs ios-certs-init ios-pr ios-release appdrop-upload patch-node-modules sim-ios sim-android dev-ios dev-android test test-go test-android test-ios test-js clean clean-all help
+_ALL_TARGETS := setup ios android release-android bundle-android pr-android ios-certs ios-certs-init ios-pr ios-release appdrop-upload patch-node-modules sim-ios sim-android dev-ios dev-android test test-go test-android test-ios test-js clean clean-all help
 
 # Auto-load fastlane secrets from .env.fastlane (gitignored) so local dev doesn't
 # need to `export` each time. CI provides these via GitHub secrets; .env.fastlane
@@ -64,6 +64,13 @@ release-android:
 	@$(MAKE) -C mobile-app release-android \
 		VERSION_NAME=$(VERSION_NAME) \
 		ANDROID_ABI=$(ANDROID_ABI)
+
+# Play Store bundle: one AAB carrying every ABI.
+# Usage: make bundle-android VERSION_NAME=1.1.16
+bundle-android:
+	@$(MAKE) -C backend android ANDROID_TARGETS=android/arm64,android/arm,android/amd64
+	@$(MAKE) -C mobile-app bundle-android \
+		VERSION_NAME=$(VERSION_NAME)
 
 # PR Android build: .pr applicationId suffix, release-signed.
 pr-android:
@@ -287,6 +294,7 @@ help:
 	@echo "  make ios-pr       - Build signed .pr IPA for appdrop.sh distribution"
 	@echo "  make ios-release  - Build App Store IPA and upload to TestFlight"
 	@echo "  make android      - Build Go backend + Android app"
+	@echo "  make bundle-android - Build multi-ABI Android AAB for Play Store"
 	@echo "  make pr-android   - Build Android APK with .pr applicationId suffix"
 	@echo "  make sim-ios      - Build Go + iOS app, install + launch on booted simulator"
 	@echo "  make sim-android  - Build Go + Android app, install + launch on running emulator"

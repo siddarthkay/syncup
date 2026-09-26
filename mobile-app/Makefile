@@ -1,6 +1,7 @@
 YARN ?= yarn
 GRADLE ?= gradle
 ANDROID_APK = android/app/build/outputs/apk/release/app-release.apk
+ANDROID_AAB = android/app/build/outputs/bundle/release/app-release.aab
 
 XCODE_WORKSPACE = ios/syncup.xcworkspace
 XCODE_SCHEME = syncup
@@ -8,7 +9,7 @@ XCODE_DERIVEDDATA = ios/build
 IOS_SDK ?= iphoneos
 IOS_SIMULATOR_SDK ?= iphonesimulator
 
-.PHONY: install pod-install build-ios archive-ios build-android pr-android release-android run-ios run-android clean-ios clean-android clean help
+.PHONY: install pod-install build-ios archive-ios build-android pr-android release-android bundle-android run-ios run-android clean-ios clean-android clean help
 
 install:
 	@echo "Installing Node dependencies..."
@@ -119,6 +120,23 @@ release-android: install
 		-PVERSION_NAME=$(VERSION_NAME) \
 		-PreactNativeArchitectures=$(ANDROID_ABI)
 	@echo "✓ Android release APK built"
+
+# Play Store: single multi-ABI bundle, release-signed. Needs a gobridge.aar
+# built for every ABI listed (see root Makefile bundle-android).
+ANDROID_BUNDLE_ABIS ?= arm64-v8a,armeabi-v7a,x86_64
+
+ANDROID_BUNDLE_GRADLE_OPTS ?= \
+	-Dorg.gradle.jvmargs="-Xmx4g -XX:MaxMetaspaceSize=768m" \
+	-Dorg.gradle.workers.max=2 \
+	-Pkotlin.daemon.jvmargs=-Xmx2g
+
+bundle-android: install
+	@echo "Building Android release AAB ($(ANDROID_BUNDLE_ABIS))..."
+	@cd android && $(GRADLE) bundleRelease --no-daemon \
+		$(ANDROID_BUNDLE_GRADLE_OPTS) \
+		-PVERSION_NAME=$(VERSION_NAME) \
+		-PreactNativeArchitectures=$(ANDROID_BUNDLE_ABIS)
+	@echo "✓ Android AAB built at $(ANDROID_AAB)"
 
 # PR builds: release-signed APK with a .pr applicationId suffix so it sits
 # alongside the production app on a tester's device.
